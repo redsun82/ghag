@@ -1,4 +1,7 @@
-from src.pyactions import main
+from src.pyactions.workflow import *
+from src.pyactions.element import *
 
-def test_nothing():
-    main(["bla", "foo"])
+
+def test_default():
+    w = Workflow()
+    assert asobj(w) == {"jobs": {}, "on": {}}

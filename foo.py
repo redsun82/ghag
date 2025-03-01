@@ -12,6 +12,7 @@ from ctx import *
 #
 # job.set_defaults(timeout_minutes=15)
 
+
 @workflow
 def my_workflow():
     on.pull_request(branches=["main"], paths=["**/bla"])
@@ -19,19 +20,21 @@ def my_workflow():
 
     @job
     def do_something():
-        matrix(
-            runner = ["ubuntu-latest", "windows-latest"]
-        )
+        matrix(runner=["ubuntu-latest", "windows-latest"])
         # runs_on(matrix.runner)
         runs_on("ubuntu-latest")
         step.use("actions/checkout@v4")
-        step("hello").run("""
+        step("hello").run(
+            """
             echo hello
             if true; then
                 echo world
             fi
-        """)
-        step.if_(~(failed() | skipped() & failed() | "foo's")).name("Oh no").run("echo catastrophe!")
+        """
+        )
+        step.if_(~(failed() | skipped() & failed() | "foo's")).name("Oh no").run(
+            "echo catastrophe!"
+        )
 
         # output_step = step("Get output").output(my_output=42)
         # step("Use output").run(f"Output was {output_step.outputs.my_output}")

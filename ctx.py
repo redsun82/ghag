@@ -3,15 +3,20 @@ import typing
 from dataclasses import dataclass, field, fields
 from typing import ClassVar, Self
 
+
 def _process(x: typing.Any):
     match x:
         case dict():
-            return {i.rstrip("_").replace("_", "-"): _process(v)
-                    for i, v in x.items() if v is not None}
+            return {
+                i.rstrip("_").replace("_", "-"): _process(v)
+                for i, v in x.items()
+                if v is not None
+            }
         case list():
             return [_process(v) for v in x]
         case _:
             return x
+
 
 def _clean_code(code: str):
     lines = code.splitlines()
@@ -29,7 +34,8 @@ def _clean_code(code: str):
         trimmed.pop()
     while trimmed and not trimmed[0]:
         trimmed.pop(0)
-    return '\n'.join(trimmed)
+    return "\n".join(trimmed)
+
 
 def _string_literal(s: str) -> str:
     return f"'{s.replace("'", "''")}'"
@@ -70,12 +76,13 @@ class Expr:
     def __ror__(self, other: "ExprOrLiteral") -> Self:
         return Expr(f"{self._syntax(other)} || {self._value}", "||")
 
-
     def __invert__(self) -> Self:
         operand = f"({self._value})" if self._op else self._value
         return Expr(f"!{operand}")
 
+
 ExprOrLiteral = Expr | str | int | float | bool
+
 
 @dataclass
 class Root:
@@ -87,11 +94,13 @@ class Root:
 class Trigger(Root):
     tag: ClassVar[str]
 
+
 @dataclass
 class PullRequest(Trigger):
     tag: ClassVar[str] = "pull_request"
     branches: list[str] | None = None
     paths: list[str] | None = None
+
 
 @dataclass
 class WorkflowDispatch(Trigger):
@@ -103,6 +112,7 @@ class On(Root):
     pull_request: PullRequest | None = None
     workflow_dispatch: WorkflowDispatch | None = None
 
+
 @dataclass
 class Step(Root):
     name: str | None = None
@@ -110,16 +120,19 @@ class Step(Root):
     env: dict[str, str] | None = None
     continue_on_error: str | bool | None = None
 
+
 @dataclass
 class Run(Step):
     run: str | None = None
     shell: str | None = None
     working_directory: str | None = None
 
+
 @dataclass
 class Use(Step):
     use: str | None = None
     with_: dict[str, str] | None = None
+
 
 @dataclass
 class Matrix(Root):
@@ -133,11 +146,13 @@ class Matrix(Root):
         ret |= ret.pop("values", {})
         return ret
 
+
 @dataclass
 class Strategy(Root):
     matrix: Matrix | None = None
     fail_fast: ExprOrLiteral | None = None
     max_parallel: ExprOrLiteral | None = None
+
 
 @dataclass
 class Job(Root):
@@ -146,11 +161,13 @@ class Job(Root):
     strategy: Strategy | None = None
     steps: list[Step] | None = None
 
+
 @dataclass
 class Workflow(Root):
     name: str | None = None
     on: On = field(default_factory=On)
     jobs: dict[str, Job] = field(default_factory=dict)
+
 
 @dataclass
 class _Ctx:
@@ -193,7 +210,9 @@ class _Ctx:
                 case Use():
                     assert False
                 case _:
-                    self.building = Run(run=_clean_code(str(code)), **asdict(self.building))
+                    self.building = Run(
+                        run=_clean_code(str(code)), **asdict(self.building)
+                    )
             return self
 
         def use(self, action: str) -> Self:
@@ -215,7 +234,9 @@ class _Ctx:
                 case Use():
                     assert False
                 case _:
-                    self.building = Run(working_directory=str(d), **asdict(self.building))
+                    self.building = Run(
+                        working_directory=str(d), **asdict(self.building)
+                    )
             return self
 
         def with_(self, args: dict[str, ExprOrLiteral]) -> Self:
@@ -248,7 +269,6 @@ class _Ctx:
         def __call__(self, n: str) -> "_Ctx.StepBuilder":
             return self.name(n)
 
-
     current: object = None
     workflows: dict[str, Workflow] = field(default_factory=dict)
     step: None | StepBuilder = None
@@ -259,16 +279,20 @@ _ctx = _Ctx()
 on = _Ctx.On()
 step = _Ctx.Step()
 
+
 def failed() -> Expr:
     return Expr("failed()")
 
+
 def skipped() -> Expr:
     return Expr("skipped()")
+
 
 def workflow(f):
     _ctx.current = _ctx.workflows[f.__name__] = Workflow()
     f()
     _ctx.current = None
+
 
 def job(f):
     assert isinstance(_ctx.current, Workflow)
@@ -279,16 +303,24 @@ def job(f):
         j.steps.append(_ctx.step.building)
     _ctx.current = wf
 
+
 def runs_on(runner: Expr):
     assert isinstance(_ctx.current, Job)
     assert _ctx.current.runs_on is None
     _ctx.current.runs_on = runner
 
-def matrix(include: list[dict[str, ExprOrLiteral]] | None = None, exclude: list[dict[str, ExprOrLiteral]] | None = None, **kwargs: Expr | list[ExprOrLiteral]):
+
+def matrix(
+    include: list[dict[str, ExprOrLiteral]] | None = None,
+    exclude: list[dict[str, ExprOrLiteral]] | None = None,
+    **kwargs: Expr | list[ExprOrLiteral],
+):
     assert isinstance(_ctx.current, Job)
-    m = Matrix({k: str(v) for k, v in include.items()} if include else None,
-               {k: str(v) for k, v in include.items()} if exclude else None,
-               {k: str(v) for k, v in kwargs.items()} if kwargs else None)
+    m = Matrix(
+        {k: str(v) for k, v in include.items()} if include else None,
+        {k: str(v) for k, v in include.items()} if exclude else None,
+        {k: str(v) for k, v in kwargs.items()} if kwargs else None,
+    )
     if _ctx.current.strategy is None:
         _ctx.current.strategy = Strategy(m)
     else:
