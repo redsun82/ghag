@@ -3,7 +3,18 @@ name = "pyactions"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
+authors = [
+    { name = "Paolo Tranquilli", email = "redsun82@gmail.com" }
+]
 requires-python = ">=3.12"
 dependencies = [
+    "pytest>=8.3.4",
     "ruamel-yaml>=0.18.10",
 ]
+
+[project.scripts]
+pyactions = "pyactions:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
