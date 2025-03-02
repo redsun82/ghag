@@ -61,7 +61,6 @@ class Matrix:
     values: dict[str, list[str]]
 
     def asdict(self) -> dict[str, Any]:
-        print("PROUT")
         ret = super().asdict()
         ret |= ret.pop("values", {})
         return ret
@@ -87,3 +86,4 @@ class Workflow:
     name: str
     on: On = field(default_factory=On)
     jobs: dict[str, Job] = field(default_factory=dict)
+    env: dict[str, Value]
