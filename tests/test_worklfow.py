@@ -1,11 +1,14 @@
 from src.pyactions.workflow import *
 from src.pyactions.element import *
 from src.pyactions.ctx import *
+from src.pyactions import generate
+
+import subprocess
 
 
-def test_default():
+def test_default(request):
     @workflow
-    def wf():
+    def test_default():
         env(
             FOO="bar",
         )
@@ -14,10 +17,6 @@ def test_default():
         env(
             BAZ="bazz",
         )
-
-    w = wf.instantiate()
-    assert asobj(w) == {
-        "jobs": {},
-        "on": {"pull-request": {"branches": ["main"]}, "workflow-dispatch": {}},
-        "env": {"FOO": "bar", "BAZ": "bazz"},
-    }
+    output = generate(test_default, request.path.parent)
+    subprocess.run(["diff", "-u", output, output.with_suffix(".expected.yml")],
+                   check=True)

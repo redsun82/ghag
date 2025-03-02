@@ -85,5 +85,5 @@ class Job:
 class Workflow:
     name: str
     on: On = field(default_factory=On)
-    jobs: dict[str, Job] = field(default_factory=dict)
     env: dict[str, Value]
+    jobs: dict[str, Job] = field(default_factory=dict)

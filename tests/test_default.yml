@@ -1,0 +1,9 @@
+on:
+  pull-request:
+    branches:
+    - main
+  workflow-dispatch: {}
+env:
+  FOO: bar
+  BAZ: bazz
+jobs: {}
