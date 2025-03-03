@@ -1,6 +1,6 @@
 import typing
 import warnings
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, asdict
 import dataclasses
 import threading
 
@@ -70,14 +70,16 @@ def _merge[T](lhs: T | None, rhs: T | None) -> T | None:
             return rhs
 
 
-def _update_field(field: str, *args, **kwargs):
+def _update_field(field: str, *args, **kwargs) -> typing.Any:
     instance, f = _get_field(field)
     current_value = getattr(instance, field)
     value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
-    setattr(instance, field, _merge(current_value, value))
+    value = _merge(current_value, value)
+    setattr(instance, field, value)
+    return value
 
 
-def _update_subfield(field: str, subfield: str, *args, **kwargs):
+def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
     instance, f = _get_field(field)
     value = f.type()
     _, sf = _get_field(subfield, value)
@@ -85,6 +87,7 @@ def _update_subfield(field: str, subfield: str, *args, **kwargs):
     setattr(value, subfield, subvalue)
     value = _merge(getattr(instance, field), value)
     setattr(instance, field, value)
+    return value
 
 
 @dataclass
@@ -165,3 +168,79 @@ class _StrategyUpdater:
 
 
 strategy = _StrategyUpdater()
+
+
+@dataclass
+class _StepUpdater:
+    steps: list[Step] | None = None
+
+    def __call__(self, name: Value[str]) -> typing.Self:
+        return self.name(name)
+
+    @property
+    def step(self) -> Step | None:
+        return self.steps[-1] if self.steps else None
+
+    def _ensure_step(self) -> typing.Self:
+        if self.step is not None:
+            return self
+        steps = _update_field("steps", [Step()])
+        return _StepUpdater(steps)
+
+    def _ensure_run_step(self) -> typing.Self:
+        ret = self._ensure_step()
+        match ret.step:
+            case RunStep():
+                pass
+            case UseStep():
+                assert False, "cannot turn a `use` step into a `run` one"
+            case _:
+                ret.steps[-1] = RunStep(**asdict(ret.step))
+        return ret
+
+    def _ensure_use_step(self) -> typing.Self:
+        ret = self._ensure_step()
+        match ret.step:
+            case RunStep():
+                assert False, "cannot turn a `run` step into a `use` one"
+            case UseStep():
+                pass
+            case _:
+                ret.steps[-1] = UseStep(**asdict(ret.step))
+        return ret
+
+    def name(self, name: Value[str]) -> typing.Self:
+        ret = self._ensure_step()
+        ret.step.name = name
+        return ret
+
+    def if_(self, condition: Value[bool]) -> typing.Self:
+        ret = self._ensure_step()
+        ret.step.if_ = condition
+        return ret
+
+    def env(self, *args, **kwargs) -> typing.Self:
+        ret = self._ensure_run_step()
+        ret.step.env = (ret.step.env or {}) | dict(*args, **kwargs)
+        return ret
+
+    def run(self, code: Value[str]):
+        ret = self._ensure_run_step()
+        ret.step.run = code
+        return ret
+
+    def use(self, source: Value[str], **kwargs):
+        ret = self._ensure_use_step()
+        ret.step.use = source
+        if kwargs:
+            ret.with_(kwargs)
+        return ret
+
+    def with_(self, *args, **kwargs) -> typing.Self:
+        ret = self._ensure_use_step()
+        ret.step.with_ = (ret.step.with_ or {}) | dict(*args, **kwargs)
+        return ret
+
+step = _StepUpdater()
+run = step.run
+use = step.use

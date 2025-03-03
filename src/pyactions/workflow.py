@@ -8,6 +8,8 @@ __all__ = [
     "WorkflowDispatch",
     "On",
     "Step",
+    "RunStep",
+    "UseStep",
     "Job",
     "Strategy",
     "Matrix",
@@ -35,10 +37,21 @@ class On:
 
 @element
 class Step:
-    name: str
-    if_: str
-    env: dict[str, str]
-    continue_on_error: str | bool
+    name: Value[str]
+    if_: Value[bool]
+    continue_on_error: Value[bool]
+
+
+@element
+class RunStep(Step):
+    run: Value[str]
+    env: dict[str, Value[str]]
+
+
+@element
+class UseStep(Step):
+    use: str
+    with_: dict[str, Value[str | bool | int | float]]
 
 
 @element

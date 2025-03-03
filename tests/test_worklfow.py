@@ -259,3 +259,45 @@ def test_runs_on_in_worfklow_with_name():
     name("Foo bar")
     on.workflow_dispatch()
     runs_on("macos-latest")
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  my_job:
+    runs-on: ubuntu-latest
+    steps:
+    - name: salutations
+      run: echo hello
+    - run: echo $WHO
+      env:
+        WHO: world
+    - name: catastrophe
+      if: failure()
+      run: echo oh no
+    - use: actions/checkout@v4
+      with:
+        ref: dev
+    - use: ./my_action
+      with:
+        arg1: foo
+        arg2: bar
+    - use: ./my_other_action
+      with:
+        arg1: foo
+        arg2: bar
+"""
+)
+def test_steps():
+    on.workflow_dispatch()
+
+    @job
+    def my_job():
+        step.run("echo hello").name("salutations")
+        run("echo $WHO").env(WHO="world")
+        step("catastrophe").run("echo oh no").if_("failure()")
+        step.use("actions/checkout@v4").with_(ref="dev")
+        use("./my_action").with_(arg1="foo", arg2="bar")
+        use("./my_other_action", arg1="foo", arg2="bar")
