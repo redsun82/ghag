@@ -1,1 +1,2 @@
-*.expected.yml
+*.yml
+!*.expected.yml
