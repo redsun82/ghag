@@ -1,10 +1,11 @@
 import typing
 import warnings
-from dataclasses import dataclass, fields, asdict
+from dataclasses import dataclass, fields
 import dataclasses
 import threading
 
 from .element import Element
+from .expr import Value
 from .workflow import *
 
 
@@ -73,16 +74,6 @@ def _update_subfield(field: str, subfield: str, *args, **kwargs):
     setattr(current(), field, value)
 
 
-class _OnUpdater:
-    def pull_request(self, **kwargs) -> typing.Self:
-        _update_subfield("on", "pull_request", **kwargs)
-        return self
-
-    def workflow_dispatch(self, **kwargs) -> typing.Self:
-        _update_subfield("on", "workflow_dispatch", **kwargs)
-        return self
-
-
 @dataclass
 class WorkflowInfo:
     id: str
@@ -129,4 +120,35 @@ def env(*args, **kwargs):
     _update_field("env", *args, **kwargs)
 
 
+def runs_on(value: Value):
+    _update_field("runs_on", value)
+
+
+class _OnUpdater:
+    def pull_request(self, **kwargs) -> typing.Self:
+        _update_subfield("on", "pull_request", **kwargs)
+        return self
+
+    def workflow_dispatch(self, **kwargs) -> typing.Self:
+        _update_subfield("on", "workflow_dispatch", **kwargs)
+        return self
+
+
 on = _OnUpdater()
+
+
+class _StrategyUpdater:
+    def matrix(self, **kwargs) -> typing.Self:
+        _update_subfield("strategy", "matrix", **kwargs)
+        return self
+
+    def fail_fast(self, value: Value[bool] = True) -> typing.Self:
+        _update_subfield("strategy", "fail_fast", value)
+        return self
+
+    def max_parallel(self, value: Value[int]) -> typing.Self:
+        _update_subfield("strategy", "max_parallel", value)
+        return self
+
+
+strategy = _StrategyUpdater()

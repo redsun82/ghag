@@ -6,11 +6,13 @@ from ruamel.yaml import YAML
 
 from .ctx import WorkflowInfo
 
+yaml = YAML()
+yaml.default_flow_style = False
+
 
 def generate(w: WorkflowInfo, dir: pathlib.Path) -> pathlib.Path:
     output = (dir / w.id).with_suffix(".yml")
     w = w.instantiate().asdict()
-    yaml = YAML()
     with open(output, "w") as out:
         yaml.dump(w, out)
     return output

@@ -1,5 +1,5 @@
-from .element import element
-from typing import ClassVar, Any
+from .element import element, Element
+from typing import ClassVar, Any, cast
 from .expr import Value
 from dataclasses import field
 
@@ -60,8 +60,19 @@ class Matrix:
     exclude: list[dict[str, str]]
     values: dict[str, list[str]]
 
+    def __init__(
+        self,
+        *,
+        include: list[dict[str, str]] = None,
+        exclude: list[dict[str, str]] = None,
+        **values: list[str],
+    ):
+        self.include = include
+        self.exclude = exclude
+        self.values = values
+
     def asdict(self) -> dict[str, Any]:
-        ret = super().asdict()
+        ret = Element.asdict(cast(Element, self))
         ret |= ret.pop("values", {})
         return ret
 
@@ -76,7 +87,7 @@ class Strategy:
 @element
 class Job:
     name: str
-    runs_on: str
+    runs_on: str = "ubuntu-latest"
     strategy: Strategy
     env: dict[str, Value]
     steps: list[Step]

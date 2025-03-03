@@ -55,6 +55,7 @@ on:
 jobs:
   my_job:
     name: My job
+    runs-on: ubuntu-latest
     env:
       FOO: bar
 """
@@ -75,6 +76,7 @@ on:
 jobs:
   my_job:
     name: My job
+    runs-on: ubuntu-latest
     env:
       FOO: bar
 """
@@ -86,3 +88,123 @@ def test_job_name_from_docstring():
     def my_job():
         """My job"""
         env(FOO="bar")
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  job1:
+    name: First job
+    runs-on: ubuntu-latest
+    env:
+      FOO: bar
+  job2:
+    name: Second job
+    runs-on: ubuntu-latest
+    env:
+      BAZ: bazz
+"""
+)
+def test_jobs():
+    on.workflow_dispatch()
+
+    @job
+    def job1():
+        name("First job")
+        env(FOO="bar")
+
+    @job
+    def job2():
+        name("Second job")
+        env(BAZ="bazz")
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  my_job:
+    runs-on: windows-latest
+"""
+)
+def test_job_runs_on():
+    on.workflow_dispatch()
+
+    @job
+    def my_job():
+        runs_on("windows-latest")
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  with_cross_matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
+  with_include_exclude_matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - x: 100
+          y: z
+        exclude:
+        - x: 1
+          y: a
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
+  with_fail_fast_and_max_parallel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
+      fail-fast: true
+      max-parallel: 5
+"""
+)
+def test_strategy():
+    on.workflow_dispatch()
+
+    @job
+    def with_cross_matrix():
+        strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"])
+
+    @job
+    def with_include_exclude_matrix():
+        strategy.matrix(
+            x=[1, 2, 3],
+            y=["a", "b", "c"],
+            exclude=[{"x": 1, "y": "a"}],
+            include=[{"x": 100, "y": "z"}],
+        )
+
+    @job
+    def with_fail_fast_and_max_parallel():
+        strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"]).fail_fast().max_parallel(5)
