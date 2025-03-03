@@ -208,3 +208,54 @@ def test_strategy():
     @job
     def with_fail_fast_and_max_parallel():
         strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"]).fail_fast().max_parallel(5)
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  test_strategy_in_worfklow:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        x:
+        - 1
+        - 2
+        - 3
+"""
+)
+def test_strategy_in_worfklow():
+    on.workflow_dispatch()
+    strategy.matrix(x=[1, 2, 3])
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  test_runs_on_in_worfklow:
+    runs-on: macos-latest
+"""
+)
+def test_runs_on_in_worfklow():
+    on.workflow_dispatch()
+    runs_on("macos-latest")
+
+
+@expect(
+    """
+name: Foo bar
+on:
+  workflow-dispatch: {}
+jobs:
+  test_runs_on_in_worfklow_with_name:
+    name: Foo bar
+    runs-on: macos-latest
+"""
+)
+def test_runs_on_in_worfklow_with_name():
+    name("Foo bar")
+    on.workflow_dispatch()
+    runs_on("macos-latest")
