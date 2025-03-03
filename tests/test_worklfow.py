@@ -18,6 +18,7 @@ def test_basic():
     on.pull_request(branches=["main"])
     on.workflow_dispatch()
 
+
 @expect(
     """
 name: My workflow

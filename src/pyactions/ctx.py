@@ -94,6 +94,7 @@ def workflow(func=None, *, id=None) -> WorkflowInfo:
 def name(value: str):
     _update_field("name", value)
 
+
 def env(value: dict = None, **kwargs):
     _update_field("env", value, **kwargs)
 
