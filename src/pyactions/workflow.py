@@ -78,6 +78,7 @@ class Job:
     name: str
     runs_on: str
     strategy: Strategy
+    env: dict[str, Value]
     steps: list[Step]
 
 

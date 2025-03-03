@@ -1,4 +1,5 @@
 import typing
+import warnings
 from dataclasses import dataclass, fields, asdict
 import dataclasses
 import threading
@@ -10,6 +11,7 @@ from .workflow import *
 @dataclass
 class _Context(threading.local):
     current: Workflow | Job | None = None
+    current_workflow_id: str | None = None
 
 
 _ctx = _Context()
@@ -19,8 +21,17 @@ def current() -> Workflow | Job | None:
     return _ctx.current
 
 
+def current_workflow_id() -> str | None:
+    return _ctx.current_workflow_id
+
+
 def _get_field(field: str, instance: Element | None = None) -> dataclasses.Field:
-    return next(f for f in fields(instance or current()) if f.name == field)
+    instance = instance or current()
+    ret = next((f for f in fields(instance or current()) if f.name == field), None)
+    assert (
+        ret
+    ), f"field {field} not found in current instance ({type(instance).__name__})"
+    return ret
 
 
 def _merge[T](lhs: T | None, rhs: T | None) -> T | None:
@@ -79,24 +90,43 @@ class WorkflowInfo:
 
     def instantiate(self) -> Workflow:
         ret = _ctx.current = Workflow(name=self.spec.__doc__)
+        _ctx.current_workflow_id = self.id
         self.spec()
         _ctx.current = None
+        _ctx.current_workflow_id = None
         return ret
 
 
-def workflow(func=None, *, id=None) -> WorkflowInfo:
+def workflow(
+    func: typing.Callable[[], None] | None = None, *, id=None
+) -> typing.Callable[[typing.Callable[[], None]], WorkflowInfo] | WorkflowInfo:
     if func is None:
         return lambda func: workflow(func, id=id)
     id = id or func.__name__
     return WorkflowInfo(id, func)
 
 
+def job(
+    func: typing.Callable[[], None] | None = None, *, id=None
+) -> typing.Callable[[typing.Callable[[], None]], None] | None:
+    if func is None:
+        return lambda func: job(func, id=id)
+    id = id or func.__name__
+    wf = current()
+    assert isinstance(wf, Workflow)
+    if id in wf.jobs:
+        warnings.warn(f"Overwriting job {id!r} in workflow {current_workflow_id()!r}")
+    job = _ctx.current = wf.jobs[id] = Job(name=func.__doc__)
+    func()
+    _ctx.current = wf
+
+
 def name(value: str):
     _update_field("name", value)
 
 
-def env(value: dict = None, **kwargs):
-    _update_field("env", value, **kwargs)
+def env(*args, **kwargs):
+    _update_field("env", *args, **kwargs)
 
 
 on = _OnUpdater()

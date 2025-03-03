@@ -46,3 +46,43 @@ jobs: {}
 def test_merge():
     on.pull_request(branches=["main"])
     on.pull_request(paths=["foo/**"])
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  my_job:
+    name: My job
+    env:
+      FOO: bar
+"""
+)
+def test_job():
+    on.workflow_dispatch()
+
+    @job
+    def my_job():
+        name("My job")
+        env(FOO="bar")
+
+
+@expect(
+    """
+on:
+  workflow-dispatch: {}
+jobs:
+  my_job:
+    name: My job
+    env:
+      FOO: bar
+"""
+)
+def test_job_name_from_docstring():
+    on.workflow_dispatch()
+
+    @job
+    def my_job():
+        """My job"""
+        env(FOO="bar")
