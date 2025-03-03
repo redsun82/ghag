@@ -1,7 +1,0 @@
-on:
-  pull-request:
-    branches:
-    - main
-    paths:
-    - foo/**
-jobs: {}

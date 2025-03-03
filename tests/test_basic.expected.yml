@@ -1,6 +1,0 @@
-on:
-  pull-request:
-    branches:
-    - main
-  workflow-dispatch: {}
-jobs: {}

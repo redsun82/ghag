@@ -14,11 +14,14 @@ class _Context(threading.local):
 
 _ctx = _Context()
 
+
 def current() -> Workflow | Job | None:
     return _ctx.current
 
+
 def _get_field(field: str, instance: Element | None = None) -> dataclasses.Field:
     return next(f for f in fields(instance or current()) if f.name == field)
+
 
 def _merge[T](lhs: T | None, rhs: T | None) -> T | None:
     match (lhs, rhs):
@@ -32,8 +35,10 @@ def _merge[T](lhs: T | None, rhs: T | None) -> T | None:
             return lhs + rhs
         case Element(), Element():
             assert type(lhs) is type(rhs)
-            data = {f.name: _merge(getattr(lhs, f.name), getattr(rhs, f.name))
-                    for f in fields(lhs)}
+            data = {
+                f.name: _merge(getattr(lhs, f.name), getattr(rhs, f.name))
+                for f in fields(lhs)
+            }
             return type(lhs)(**data)
         case _:
             assert type(lhs) is type(rhs)
@@ -46,6 +51,7 @@ def _update_field(field: str, *args, **kwargs):
     value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
     setattr(current(), field, _merge(current_value, value))
 
+
 def _update_subfield(field: str, subfield: str, *args, **kwargs):
     f = _get_field(field)
     value = f.type()
@@ -54,6 +60,7 @@ def _update_subfield(field: str, subfield: str, *args, **kwargs):
     setattr(value, subfield, subvalue)
     value = _merge(getattr(current(), field), value)
     setattr(current(), field, value)
+
 
 class _OnUpdater:
     def pull_request(self, **kwargs) -> typing.Self:
@@ -84,7 +91,8 @@ def workflow(func=None, *, id=None) -> WorkflowInfo:
     return WorkflowInfo(id, func)
 
 
-def env(value: dict=None, **kwargs):
+def env(value: dict = None, **kwargs):
     _update_field("env", value, **kwargs)
+
 
 on = _OnUpdater()

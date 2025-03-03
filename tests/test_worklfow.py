@@ -1,12 +1,33 @@
-from conftest import generation_test
+from conftest import expect
 from src.pyactions.ctx import *
 
-@generation_test
+
+@expect(
+    """
+on:
+  pull-request:
+    branches:
+    - main
+  workflow-dispatch: {}
+jobs: {}
+"""
+)
 def test_basic():
     on.pull_request(branches=["main"])
     on.workflow_dispatch()
 
-@generation_test
+
+@expect(
+    """
+on:
+  pull-request:
+    branches:
+    - main
+    paths:
+    - foo/**
+jobs: {}
+"""
+)
 def test_merge():
     on.pull_request(branches=["main"])
     on.pull_request(paths=["foo/**"])

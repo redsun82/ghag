@@ -6,6 +6,7 @@ from ruamel.yaml import YAML
 
 from .ctx import WorkflowInfo
 
+
 def generate(w: WorkflowInfo, dir: pathlib.Path) -> pathlib.Path:
     output = (dir / w.id).with_suffix(".yml")
     w = w.instantiate().asdict()
@@ -13,6 +14,7 @@ def generate(w: WorkflowInfo, dir: pathlib.Path) -> pathlib.Path:
     with open(output, "w") as out:
         yaml.dump(w, out)
     return output
+
 
 def options(args: typing.Sequence[str] = None):
     p = argparse.ArgumentParser(description="Generate Github Actions workflows")
