@@ -78,7 +78,7 @@ class WorkflowInfo:
     spec: typing.Callable[[], None]
 
     def instantiate(self) -> Workflow:
-        ret = _ctx.current = Workflow()
+        ret = _ctx.current = Workflow(name=self.spec.__doc__)
         self.spec()
         _ctx.current = None
         return ret
@@ -90,6 +90,9 @@ def workflow(func=None, *, id=None) -> WorkflowInfo:
     id = id or func.__name__
     return WorkflowInfo(id, func)
 
+
+def name(value: str):
+    _update_field("name", value)
 
 def env(value: dict = None, **kwargs):
     _update_field("env", value, **kwargs)
