@@ -1,5 +1,5 @@
 import typing
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, asdict
 import dataclasses
 import threading
 
@@ -14,29 +14,46 @@ class _Context(threading.local):
 
 _ctx = _Context()
 
-def _get_field(field: str, instance: typing.Any = None) -> dataclasses.Field:
-    return next(f for f in fields(instance or _ctx.current) if f.name == field)
+def current() -> Workflow | Job | None:
+    return _ctx.current
+
+def _get_field(field: str, instance: Element | None = None) -> dataclasses.Field:
+    return next(f for f in fields(instance or current()) if f.name == field)
+
+def _merge[T](lhs: T | None, rhs: T | None) -> T | None:
+    match (lhs, rhs):
+        case None, _:
+            return rhs
+        case _, None:
+            return lhs
+        case dict(), dict():
+            return lhs | rhs
+        case list(), list():
+            return lhs + rhs
+        case Element(), Element():
+            assert type(lhs) is type(rhs)
+            data = {f.name: _merge(getattr(lhs, f.name), getattr(rhs, f.name))
+                    for f in fields(lhs)}
+            return type(lhs)(**data)
+        case _:
+            assert type(lhs) is type(rhs)
+            return rhs
 
 
-def _update_field(field: str, value = None, **kwargs):
-    assert bool(value) + bool(kwargs) <= 1
+def _update_field(field: str, *args, **kwargs):
     f = _get_field(field)
-    current_value = getattr(_ctx.current, field)
-    if value is not None:
-        setattr(_ctx.current, field, value)
-    elif f.type is dict or f.type.__origin__ is dict and current_value is not None:
-        current_value |= kwargs
-    else:
-        setattr(_ctx.current, field, f.type(**kwargs))
+    current_value = getattr(current(), field)
+    value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
+    setattr(current(), field, _merge(current_value, value))
 
-def _update_subfield(field: str, subfield: str, value=None, **kwargs):
+def _update_subfield(field: str, subfield: str, *args, **kwargs):
     f = _get_field(field)
-    if getattr(_ctx.current, field) is None:
-        _update_field(field)
-    instance = getattr(_ctx.current, field)
-    sf = _get_field(subfield, instance)
-    setattr(instance, subfield, value or sf.type(**kwargs))
-
+    value = f.type()
+    sf = _get_field(subfield, value)
+    subvalue = args[0] if len(args) == 1 and not kwargs else sf.type(*args, **kwargs)
+    setattr(value, subfield, subvalue)
+    value = _merge(getattr(current(), field), value)
+    setattr(current(), field, value)
 
 class _OnUpdater:
     def pull_request(self, **kwargs) -> typing.Self:
