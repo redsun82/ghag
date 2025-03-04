@@ -4,8 +4,6 @@ import typing
 
 @dataclasses.dataclass
 class Element:
-    tag: typing.ClassVar[str] = None
-
     def asdict(self) -> typing.Any:
         return {
             k.rstrip("_").replace("_", "-"): asobj(v)

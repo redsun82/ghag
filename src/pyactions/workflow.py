@@ -19,15 +19,13 @@ __all__ = [
 
 @element
 class PullRequest:
-    tag: ClassVar[str] = "pull_request"
     branches: list[str]
     paths: list[str]
 
 
 @element
 class WorkflowDispatch:
-    tag: ClassVar[str] = "workflow_dispatch"
-
+    pass
 
 @element
 class On:
