@@ -6,10 +6,10 @@ from src.pyactions.ctx import *
     """
 name: My workflow
 on:
+  workflow-dispatch: {}
   pull-request:
     branches:
     - main
-  workflow-dispatch: {}
 jobs: {}
 """
 )
@@ -140,10 +140,9 @@ def test_job_runs_on():
 
 @expect(
     """
-on:
-  workflow-dispatch: {}
+on: {}
 jobs:
-  with_cross_matrix:
+  a_job:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -155,7 +154,19 @@ jobs:
         - a
         - b
         - c
-  with_include_exclude_matrix:
+"""
+)
+def test_strategy_with_cross_matrix():
+    @job
+    def a_job():
+        strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"])
+
+
+@expect(
+    """
+on: {}
+jobs:
+  a_job:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -173,7 +184,24 @@ jobs:
         - a
         - b
         - c
-  with_fail_fast_and_max_parallel:
+"""
+)
+def test_strategy_with_include_exclude_matrix():
+    @job
+    def a_job():
+        strategy.matrix(
+            x=[1, 2, 3],
+            y=["a", "b", "c"],
+            exclude=[{"x": 1, "y": "a"}],
+            include=[{"x": 100, "y": "z"}],
+        )
+
+
+@expect(
+    """
+on: {}
+jobs:
+  a_job:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -189,25 +217,34 @@ jobs:
       max-parallel: 5
 """
 )
-def test_strategy():
-    on.workflow_dispatch()
-
+def test_strategy_with_fail_fast_and_max_parallel():
     @job
-    def with_cross_matrix():
-        strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"])
-
-    @job
-    def with_include_exclude_matrix():
-        strategy.matrix(
-            x=[1, 2, 3],
-            y=["a", "b", "c"],
-            exclude=[{"x": 1, "y": "a"}],
-            include=[{"x": 100, "y": "z"}],
-        )
-
-    @job
-    def with_fail_fast_and_max_parallel():
+    def a_job():
         strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"]).fail_fast().max_parallel(5)
+
+
+@expect(
+    """
+on: {}
+jobs:
+  a_job:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
+"""
+)
+def test_matrix_shortcut():
+    @job
+    def a_job():
+        matrix(x=[1, 2, 3], y=["a", "b", "c"])
 
 
 @expect(
@@ -307,3 +344,193 @@ def test_steps():
         step.use("actions/checkout@v4").with_(ref="dev")
         use("./my_action").with_(arg1="foo", arg2="bar")
         use("./my_other_action", arg1="foo", arg2="bar")
+
+
+@expect(
+    """
+on:
+  workflow-dispatch:
+    inputs:
+      foo:
+        description: a foo
+        required: true
+        type: string
+      bar:
+        description: a bar
+        required: false
+        type: boolean
+      baz:
+        required: false
+        default: b
+        type: choice
+        options:
+        - a
+        - b
+        - c
+      an_env:
+        required: false
+        type: environment
+jobs: {}
+"""
+)
+def test_workflow_dispatch_inputs():
+    on.workflow_dispatch.input("foo", description="a foo", required=True).input(
+        "bar", "a bar", type="boolean"
+    )
+    on.workflow_dispatch.input(
+        "baz", type="choice", options=["a", "b", "c"], default="b"
+    )
+    on.workflow_dispatch.input("an_env", type="environment")
+
+
+@expect(
+    """
+on:
+  workflow-call:
+    inputs:
+      foo:
+        required: true
+        type: string
+      bar:
+        required: false
+        type: boolean
+      baz:
+        required: false
+        default: b
+        type: choice
+        options:
+        - a
+        - b
+        - c
+    secrets:
+      token:
+        required: true
+      auth:
+        description: auth if provided
+        required: false
+jobs: {}
+"""
+)
+def test_workflow_call():
+    (
+        on.workflow_call.input("foo", required=True)
+        .input("bar", type="boolean")
+        .input("baz", type="choice", options=["a", "b", "c"], default="b")
+        .secret("token", required=True)
+        .secret("auth", "auth if provided")
+    )
+
+
+@expect(
+    """
+on:
+  workflow-call:
+    inputs:
+      foo:
+        description: a foo
+        required: true
+        type: string
+      bar:
+        required: false
+        default: 42
+        type: number
+  workflow-dispatch:
+    inputs:
+      foo:
+        description: a foo
+        required: true
+        type: string
+      bar:
+        required: false
+        default: 42
+        type: number
+jobs: {}
+"""
+)
+def test_inputs():
+    input("foo", description="a foo", required=True)
+    input("bar", type="number", default=42)
+
+
+@expect(
+    """
+on:
+  workflow-call:
+    inputs:
+      foo:
+        description: a foo
+        required: false
+        type: string
+jobs: {}
+"""
+)
+def test_trigger_removal():
+    input("foo", "a foo")
+    on.workflow_dispatch(None)
+
+
+@expect(
+    """
+on:
+  workflow-call:
+    inputs:
+      foo:
+        description: a foo
+        required: false
+        type: string
+  workflow-dispatch:
+    inputs:
+      foo:
+        description: a foo
+        required: false
+        type: string
+jobs:
+  test_use_input_as_expr:
+    runs-on: ubuntu-latest
+    steps:
+    - run: foo is ${{ inputs.foo }}
+"""
+)
+def test_use_input_as_expr():
+    foo = input("foo", "a foo")
+    run(f"foo is {foo}")
+
+
+@expect(
+    """
+on:
+  workflow-call:
+    inputs:
+      foo:
+        description: a foo
+        required: false
+        type: string
+      bar:
+        required: false
+        type: string
+      baz:
+        required: false
+        default: 42
+        type: string
+  workflow-dispatch:
+    inputs:
+      foo:
+        description: a foo
+        required: false
+        type: string
+      bar:
+        required: false
+        type: string
+      baz:
+        required: false
+        default: 42
+        type: string
+jobs:
+  test_inputs_from_parameters:
+    runs-on: ubuntu-latest
+    steps:
+    - run: foo is ${{ inputs.foo }}
+"""
+)
+def test_inputs_from_parameters(foo: Input("a foo"), bar, baz=42):
+    run(f"foo is {foo}")

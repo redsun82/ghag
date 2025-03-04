@@ -7,7 +7,7 @@ import dataclasses
 import threading
 
 from .element import Element
-from .expr import Value
+from .expr import Value, Expr
 from .workflow import *
 
 
@@ -100,7 +100,7 @@ def _build_job(id: str):
         _ctx.current = parent
 
 
-def _start_auto_job_reason(field: str) -> Job:
+def _start_auto_job_reason(field: str, level=0) -> Job:
     assert isinstance(current(), Workflow) and not _ctx.auto_job_reason
     job = Job(name=current().name)
     if not current().jobs:
@@ -110,7 +110,7 @@ def _start_auto_job_reason(field: str) -> Job:
     else:
         _ctx.error(
             f"`{field}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
-            level=5,
+            level=level + 5,
         )
     return job
 
@@ -129,17 +129,18 @@ def _try_get_field(field: str, instance: Element | None = None) -> dataclasses.F
 
 
 def _get_field(
-    field: str, instance: Element | None = None
+    field: str, instance: Element | None = None, level=0
 ) -> tuple[Element, dataclasses.Field]:
     instance = instance or current()
     ret = _try_get_field(field, instance)
     if ret is None and isinstance(instance, Workflow):
         ret = _try_get_field(field, Job)
         assert ret, f"field {field} not found in current instance (Workflow or Job)"
-        return _start_auto_job_reason(field), ret
+        return _start_auto_job_reason(field, level=level), ret
     if not ret:
         _ctx.error(
-            f"`{field}` is not a {type(instance).__name__.lower()} field", level=4
+            f"`{field}` is not a {type(instance).__name__.lower()} field",
+            level=level + 4,
         )
         if isinstance(instance, Job) and _ctx.auto_job_reason:
             _ctx.errors[
@@ -148,11 +149,13 @@ def _get_field(
     return instance, ret
 
 
-def _merge[T](field: str, level: int, lhs: T | None, rhs: T | None) -> T | None:
+def _merge[T](field: str, lhs: T | None, rhs: T | None, level=0) -> T | None:
     try:
         match (lhs, rhs):
             case None, _:
                 return rhs
+            case _, None if level == 0:
+                return None
             case _, None:
                 return lhs
             case dict(), dict():
@@ -167,7 +170,7 @@ def _merge[T](field: str, level: int, lhs: T | None, rhs: T | None) -> T | None:
                 assert type(lhs) is type(rhs)
                 data = {
                     f.name: _merge(
-                        f.name, level + 1, getattr(lhs, f.name), getattr(rhs, f.name)
+                        f.name, getattr(lhs, f.name), getattr(rhs, f.name), level + 1
                     )
                     for f in fields(lhs)
                 }
@@ -177,34 +180,36 @@ def _merge[T](field: str, level: int, lhs: T | None, rhs: T | None) -> T | None:
                 return rhs
     except AssertionError as e:
         _ctx.error(
-            f"cannot assign `{type(rhs).__name__}` to `{field}`", level=level + 2
+            f"cannot assign `{type(rhs).__name__}` to `{field}`", level=level + 4
         )
 
 
-def _update_field(field: str, *args, **kwargs) -> typing.Any:
-    instance, f = _get_field(field)
+def _update_field_with_level(field: str, level: int, *args, **kwargs) -> typing.Any:
+    instance, f = _get_field(field, level=level)
     if not f:
         return None
     current_value = getattr(instance, field) or f.type()
     value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
-    value = _merge(field, 2, current_value, value)
+    value = _merge(field, current_value, value, level=level)
     setattr(instance, field, value)
     return value
 
 
+def _update_field(field: str, *args, **kwargs) -> typing.Any:
+    return _update_field_with_level(field, 1, *args, **kwargs)
+
+
 def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
-    instance, f = _get_field(field)
-    if not f:
+    value = _update_field_with_level(field, 1)
+    if value is None:
         return None
-    value = f.type()
     _, sf = _get_field(subfield, value)
     if not sf:
         return None
     subvalue = args[0] if len(args) == 1 and not kwargs else sf.type(*args, **kwargs)
+    subvalue = _merge(subfield, getattr(value, subfield), subvalue)
     setattr(value, subfield, subvalue)
-    value = _merge(subfield, 2, getattr(instance, field), value)
-    setattr(instance, field, value)
-    return value
+    return subvalue
 
 
 class GenerationError(Exception):
@@ -218,18 +223,37 @@ class GenerationError(Exception):
 @dataclass
 class WorkflowInfo:
     id: str
-    spec: typing.Callable[[], None]
+    spec: typing.Callable[..., None]
 
     def instantiate(self) -> Workflow:
         with _build_workflow(self.id) as wf:
             wf.name = self.spec.__doc__
-            self.spec()
+            signature = inspect.signature(self.spec)
+            inputs = {}
+            for key, param in signature.parameters.items():
+                default = param.default
+                match param.annotation:
+                    case Input() as i:
+                        input_params = {f.name: getattr(i, f.name) for f in fields(i)}
+                        if default is not inspect.Parameter.empty:
+                            input_params["default"] = default
+                        inputs[key] = input(key, **input_params)
+                    case _:
+                        inputs[key] = input(
+                            key,
+                            default=(
+                                default
+                                if default is not inspect.Parameter.empty
+                                else None
+                            ),
+                        )
+            self.spec(**inputs)
             return wf
 
 
 def workflow(
-    func: typing.Callable[[], None] | None = None, *, id=None
-) -> typing.Callable[[typing.Callable[[], None]], WorkflowInfo] | WorkflowInfo:
+    func: typing.Callable[..., None] | None = None, *, id=None
+) -> typing.Callable[[typing.Callable[..., None]], WorkflowInfo] | WorkflowInfo:
     if func is None:
         return lambda func: workflow(func, id=id)
     id = id or func.__name__
@@ -264,12 +288,48 @@ class _OnUpdater:
         _update_subfield("on", "pull_request", **kwargs)
         return self
 
-    def workflow_dispatch(self, **kwargs) -> typing.Self:
-        _update_subfield("on", "workflow_dispatch", **kwargs)
-        return self
+    @dataclass
+    class _DispatchUpdater:
+        def __call__(self, *args, **kwargs) -> "_OnUpdater":
+            _update_subfield("on", "workflow_dispatch", *args, **kwargs)
+            return on
+
+        def input(self, key, description=None, **kwargs) -> typing.Self:
+            _update_subfield(
+                "on", "workflow_dispatch", inputs={key: Input(description, **kwargs)}
+            )
+            return self
+
+    workflow_dispatch = _DispatchUpdater()
+
+    @dataclass
+    class _CallUpdater:
+        def __call__(self, *args, **kwargs) -> "_OnUpdater":
+            _update_subfield("on", "workflow_call", *args, **kwargs)
+            return on
+
+        def input(self, key, description=None, **kwargs) -> typing.Self:
+            _update_subfield(
+                "on", "workflow_call", inputs={key: Input(description, **kwargs)}
+            )
+            return self
+
+        def secret(self, key, description=None, **kwargs) -> typing.Self:
+            _update_subfield(
+                "on", "workflow_call", secrets={key: Secret(description, **kwargs)}
+            )
+            return self
+
+    workflow_call = _CallUpdater()
 
 
 on = _OnUpdater()
+
+
+def input(key: str, *args, **kwargs) -> Expr:
+    on.workflow_dispatch.input(key, *args, **kwargs)
+    on.workflow_call.input(key, *args, **kwargs)
+    return Expr(f"inputs.{key}")
 
 
 class _StrategyUpdater:
@@ -287,6 +347,7 @@ class _StrategyUpdater:
 
 
 strategy = _StrategyUpdater()
+matrix = strategy.matrix
 
 
 @dataclass

@@ -1,3 +1,5 @@
+import typing
+
 from .element import element, Element
 from typing import ClassVar, Any, cast
 from .expr import Value
@@ -14,7 +16,26 @@ __all__ = [
     "Strategy",
     "Matrix",
     "Workflow",
+    "Input",
+    "Secret",
 ]
+
+
+@element
+class Input:
+    description: str
+    required: bool = False
+    default: typing.Any
+    type: typing.Literal["boolean", "choice", "number", "environment", "string"] = (
+        "string"
+    )
+    options: list[str]
+
+
+@element
+class Secret:
+    description: str
+    required: bool = False
 
 
 @element
@@ -25,13 +46,21 @@ class PullRequest:
 
 @element
 class WorkflowDispatch:
-    pass
+    inputs: dict[str, Input]
+
+
+@element
+class WorkflowCall:
+    inputs: dict[str, Input]
+    secrets: dict[str, Secret]
+    # TODO outputs
 
 
 @element
 class On:
-    pull_request: PullRequest
+    workflow_call: WorkflowCall
     workflow_dispatch: WorkflowDispatch
+    pull_request: PullRequest
 
 
 @element
