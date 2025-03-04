@@ -1,3 +1,4 @@
+import contextlib
 import inspect
 import typing
 import warnings
@@ -25,7 +26,17 @@ class Error:
 class _Context(threading.local):
     current: Workflow | Job | None = None
     current_workflow_id: str | None = None
+    auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
+
+    def reset(self):
+        self.current = None
+        self.current_workflow_id = None
+        self.auto_job_reason = None
+        self.errors = []
+
+    def empty(self) -> bool:
+        return not self.current and not self.current_workflow_id and not self.errors
 
     def error(self, message: str, level: int = 2):
         frame = inspect.currentframe()
@@ -44,6 +55,66 @@ class _Context(threading.local):
 _ctx = _Context()
 
 
+@contextlib.contextmanager
+def _build_workflow(id: str):
+    assert _ctx.empty()
+    _ctx.current = Workflow()
+    _ctx.current_workflow_id = id
+    try:
+        yield _ctx.current
+        if _ctx.errors:
+            raise GenerationError(_ctx.errors)
+    finally:
+        _ctx.reset()
+
+
+@contextlib.contextmanager
+def _build_job(id: str):
+    parent = current()
+    job = _ctx.current = Job()
+    try:
+        yield _ctx.current
+        if not isinstance(parent, Workflow):
+            if _ctx.auto_job_reason:
+                _ctx.error(
+                    f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{_ctx.auto_job_reason}`",
+                    level=4,
+                )
+            else:
+                _ctx.error(
+                    f"job `{id}` not created directly inside a workflow body", level=4
+                )
+            if current_workflow_id() is None:
+                # we aren't even in a workflow, raise immediately
+                errors = _ctx.errors
+                _ctx.errors = []
+                raise GenerationError(errors)
+        elif id in parent.jobs:
+            _ctx.error(
+                f"job `{id}` already exists in workflow `{current_workflow_id()}`",
+                level=4,
+            )
+        else:
+            parent.jobs[id] = job
+    finally:
+        _ctx.current = parent
+
+
+def _start_auto_job_reason(field: str) -> Job:
+    assert isinstance(current(), Workflow) and not _ctx.auto_job_reason
+    job = Job(name=current().name)
+    if not current().jobs:
+        current().jobs[current_workflow_id()] = job
+        _ctx.current = job
+        _ctx.auto_job_reason = field
+    else:
+        _ctx.error(
+            f"`{field}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
+            level=5,
+        )
+    return job
+
+
 def current() -> Workflow | Job | None:
     return _ctx.current
 
@@ -60,18 +131,21 @@ def _try_get_field(field: str, instance: Element | None = None) -> dataclasses.F
 def _get_field(
     field: str, instance: Element | None = None
 ) -> tuple[Element, dataclasses.Field]:
+    instance = instance or current()
     ret = _try_get_field(field, instance)
-    if ret is None and instance is None and isinstance(current(), Workflow):
-        instance = current().jobs.setdefault(
-            current_workflow_id(), Job(name=current().name)
-        )
-        ret = _try_get_field(field, instance)
+    if ret is None and isinstance(instance, Workflow):
+        ret = _try_get_field(field, Job)
         assert ret, f"field {field} not found in current instance (Workflow or Job)"
-        return instance, ret
-    assert (
-        ret
-    ), f"field {field} not found in current instance ({type(instance).__name__})"
-    return instance or current(), ret
+        return _start_auto_job_reason(field), ret
+    if not ret:
+        _ctx.error(
+            f"`{field}` is not a {type(instance).__name__.lower()} field", level=4
+        )
+        if isinstance(instance, Job) and _ctx.auto_job_reason:
+            _ctx.errors[
+                -1
+            ].message += f", and an implicit job was created when setting `{_ctx.auto_job_reason}`"
+    return instance, ret
 
 
 def _merge[T](field: str, level: int, lhs: T | None, rhs: T | None) -> T | None:
@@ -109,6 +183,8 @@ def _merge[T](field: str, level: int, lhs: T | None, rhs: T | None) -> T | None:
 
 def _update_field(field: str, *args, **kwargs) -> typing.Any:
     instance, f = _get_field(field)
+    if not f:
+        return None
     current_value = getattr(instance, field) or f.type()
     value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
     value = _merge(field, 2, current_value, value)
@@ -118,8 +194,12 @@ def _update_field(field: str, *args, **kwargs) -> typing.Any:
 
 def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
     instance, f = _get_field(field)
+    if not f:
+        return None
     value = f.type()
     _, sf = _get_field(subfield, value)
+    if not sf:
+        return None
     subvalue = args[0] if len(args) == 1 and not kwargs else sf.type(*args, **kwargs)
     setattr(value, subfield, subvalue)
     value = _merge(subfield, 2, getattr(instance, field), value)
@@ -141,16 +221,10 @@ class WorkflowInfo:
     spec: typing.Callable[[], None]
 
     def instantiate(self) -> Workflow:
-        ret = _ctx.current = Workflow(name=self.spec.__doc__)
-        _ctx.current_workflow_id = self.id
-        self.spec()
-        _ctx.current = None
-        _ctx.current_workflow_id = None
-        errors = _ctx.errors
-        _ctx.errors = []
-        if errors:
-            raise GenerationError(errors)
-        return ret
+        with _build_workflow(self.id) as wf:
+            wf.name = self.spec.__doc__
+            self.spec()
+            return wf
 
 
 def workflow(
@@ -168,13 +242,9 @@ def job(
     if func is None:
         return lambda func: job(func, id=id)
     id = id or func.__name__
-    wf = current()
-    assert isinstance(wf, Workflow)
-    if id in wf.jobs:
-        warnings.warn(f"Overwriting job {id!r} in workflow {current_workflow_id()!r}")
-    job = _ctx.current = wf.jobs[id] = Job(name=func.__doc__)
-    func()
-    _ctx.current = wf
+    with _build_job(id) as job:
+        job.name = func.__doc__
+        func()
 
 
 def name(value: str):

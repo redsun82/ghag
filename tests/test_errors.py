@@ -1,3 +1,7 @@
+import inspect
+
+import pytest
+
 from conftest import expect_errors
 from src.pyactions.ctx import *
 
@@ -14,3 +18,88 @@ def test_wrong_types(error):
     env(["no"])
     error("cannot assign `bool` to `runs_on`")
     runs_on(True)
+
+
+@expect_errors
+def test_wrong_jobs(error):
+    on.workflow_dispatch()
+
+    @job
+    def external():
+        run("echo Hello, world")
+
+        # fmt: off
+        error("job `nested` not created directly inside a workflow body")
+        @job
+        # fmt: on
+        def nested():
+            run("false")
+
+    @job
+    def another():
+        pass
+
+    # fmt: off
+    error("job `external` already exists in workflow `test_wrong_jobs`")
+    @job
+    # fmt: on
+    def external():
+        run("nope")
+
+
+def test_job_outside_workflow():
+    with pytest.raises(GenerationError) as e:
+
+        @job
+        def no():
+            pass
+
+    (error,) = e.value.errors
+    assert error.lineno == inspect.getsourcelines(test_job_outside_workflow)[1] + 3
+    assert error.filename == __file__
+    assert error.workflow_id is None
+    assert error.message == "job `no` not created directly inside a workflow body"
+
+
+@expect_errors
+def test_auto_job_with_existing_jobs(error):
+    @job
+    def a_job():
+        pass
+
+    error(
+        "`runs_on` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow"
+    )
+    runs_on("x")
+
+
+@expect_errors
+def test_adding_jobs_to_auto_job(error):
+    runs_on("x")
+
+    # fmt: off
+    error("explict job `a_job` cannot be created after already implicitly creating a job, which happened when setting `runs_on`")
+    @job
+    # fmt: on
+    def a_job():
+        pass
+
+
+@expect_errors
+def test_wofkflow_fields_in_job(error):
+    @job
+    def a_job():
+        name("a name")
+
+        error("`on` is not a job field")
+        on.workflow_dispatch()
+
+
+@expect_errors
+def test_wofkflow_fields_in_auto_job(error):
+    runs_on("x")
+
+    error(
+        "`on` is not a job field, and an implicit job was created when setting `runs_on`"
+    )
+    on.workflow_dispatch()

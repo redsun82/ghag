@@ -27,6 +27,7 @@ class PullRequest:
 class WorkflowDispatch:
     pass
 
+
 @element
 class On:
     pull_request: PullRequest

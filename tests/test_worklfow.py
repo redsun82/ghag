@@ -234,14 +234,20 @@ def test_strategy_in_worfklow():
     """
 on:
   workflow-dispatch: {}
+env:
+  WORKFLOW_ENV: 1
 jobs:
   test_runs_on_in_worfklow:
     runs-on: macos-latest
+    env:
+      JOB_ENV: 2
 """
 )
 def test_runs_on_in_worfklow():
     on.workflow_dispatch()
+    env(WORKFLOW_ENV=1)
     runs_on("macos-latest")
+    env(JOB_ENV=2)
 
 
 @expect(

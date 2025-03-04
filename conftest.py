@@ -7,6 +7,7 @@ from src.pyactions import generate
 import pathlib
 import inspect
 import dis
+import itertools
 
 
 def pytest_addoption(parser):
@@ -83,7 +84,7 @@ def expect_errors(func):
             assert err.workflow_id == func.__name__, f"unexpected workflow_id: {err}"
             assert (
                 err.lineno not in actual
-            ), "multiple errors on the same line, that's not yet supported"
+            ), f"multiple errors on the same line, that's not yet supported:\n* {actual[err.lineno]}\n* {err.message}"
             actual[err.lineno] = err.message
         if request.config.getoption("--learn"):
             for call, expected in expected_errors:
@@ -91,9 +92,7 @@ def expect_errors(func):
             for lineno, message in actual.items():
                 request.config.stash[_learn].append(
                     (
-                        _Call(
-                            "error", this_call.file, dis.Positions(lineno, col_offset=4)
-                        ),
+                        _Call("error", this_call.file, dis.Positions(lineno)),
                         message,
                     )
                 )
@@ -128,14 +127,18 @@ def pytest_unconfigure(config):
             for position, name, expected in v:
                 for _ in range(position.lineno - current):
                     output.write(next(input))
+                peek = next(input)
+                input = itertools.chain([peek], input)
+                offset = position.col_offset
+                if offset is None:
+                    offset = len(peek) - len(peek.lstrip())
                 if position.end_lineno:
-                    line = next(input)
                     if expected:
-                        output.write(line[: position.col_offset])
-                    for _ in range(position.end_lineno - position.lineno):
+                        output.write(peek[:offset])
+                    for _ in range(position.end_lineno - position.lineno + 1):
                         next(input)
                 elif expected:
-                    output.write(position.col_offset * " ")
+                    output.write(offset * " ")
                 if expected and "\n" in expected:
                     print(f'{name}(\n    """\n{expected}\n"""\n)', file=output)
                 elif expected:
