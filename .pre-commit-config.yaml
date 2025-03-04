@@ -8,3 +8,9 @@ repos:
         language: system
         entry: uv run black
         files: \.py$
+      - id: pytest
+        name: "test"
+        language: system
+        entry: uv run pytest
+        files: \.py$|pyproject\.toml$
+        pass_filenames: false
