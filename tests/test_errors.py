@@ -86,7 +86,7 @@ def test_adding_jobs_to_auto_job(error):
 
 
 @expect_errors
-def test_wofkflow_fields_in_job(error):
+def test_workflow_fields_in_job(error):
     @job
     def a_job():
         name("a name")
@@ -96,7 +96,7 @@ def test_wofkflow_fields_in_job(error):
 
 
 @expect_errors
-def test_wofkflow_fields_in_auto_job(error):
+def test_workflow_fields_in_auto_job(error):
     runs_on("x")
 
     error(

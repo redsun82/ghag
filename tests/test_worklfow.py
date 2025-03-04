@@ -215,7 +215,7 @@ def test_strategy():
 on:
   workflow-dispatch: {}
 jobs:
-  test_strategy_in_worfklow:
+  test_strategy_in_workflow:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -225,7 +225,7 @@ jobs:
         - 3
 """
 )
-def test_strategy_in_worfklow():
+def test_strategy_in_workflow():
     on.workflow_dispatch()
     strategy.matrix(x=[1, 2, 3])
 
@@ -237,13 +237,13 @@ on:
 env:
   WORKFLOW_ENV: 1
 jobs:
-  test_runs_on_in_worfklow:
+  test_runs_on_in_workflow:
     runs-on: macos-latest
     env:
       JOB_ENV: 2
 """
 )
-def test_runs_on_in_worfklow():
+def test_runs_on_in_workflow():
     on.workflow_dispatch()
     env(WORKFLOW_ENV=1)
     runs_on("macos-latest")
