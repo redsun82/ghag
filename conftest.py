@@ -6,6 +6,7 @@ from src.pyactions.ctx import workflow, GenerationError
 from src.pyactions import generate
 import pathlib
 import inspect
+import dis
 
 
 def pytest_addoption(parser):
@@ -16,8 +17,7 @@ def pytest_addoption(parser):
 class _Call:
     name: str
     file: pathlib.Path
-    startline: int
-    endline: int
+    position: dis.Positions
 
     @classmethod
     def get(cls):
@@ -26,15 +26,16 @@ class _Call:
         return cls(
             frame.function,
             pathlib.Path(call_frame.filename),
-            call_frame.positions.lineno,
-            call_frame.positions.end_lineno,
+            call_frame.positions,
         )
 
     def __str__(self):
-        return f"{self.name}@{self.file}:{self.startline}:{self.endline}"
+        return (
+            f"{self.name}@{self.file}:{self.position.lineno}:{self.position.end_lineno}"
+        )
 
 
-_learn = pytest.StashKey[list[tuple[_Call, str]]]()
+_learn = pytest.StashKey[list[tuple[_Call, str | None]]]()
 
 
 def pytest_configure(config: pytest.Config):
@@ -62,35 +63,60 @@ def expect(expected: str | None = None):
 
     return decorator
 
-def expect_errors(expected: str | None = None):
-    assert not callable(expected), "replace @expect_errors with @expect_errors()"
-    expected = expected and expected.lstrip("\n")
-    call = _Call.get()
 
-    def decorator(f):
-        def wrapper(request: pytest.FixtureRequest):
-            wf = workflow(f)
-            with pytest.raises(GenerationError) as e:
-                generate(wf, pathlib.Path(request.node.path.parent))
-            for err in e.value.errors:
-                err.filename = str(pathlib.Path(err.filename).relative_to(request.node.path.parent))
-            actual = map(str, e.value.errors)
-            if expected is None or request.config.getoption("--learn"):
-                request.config.stash[_learn].append((call, "\n".join(actual)))
-            else:
-                assert actual == expected.splitlines()
+def expect_errors(func):
+    expected_errors = []
+    this_call = _Call.get()
 
-        return wrapper
+    def error(expected: str | None = None):
+        expected_errors.append((_Call.get(), expected))
 
-    return decorator
+    def wrapper(request: pytest.FixtureRequest):
+        wf = workflow(lambda: func(error), id=func.__name__)
+        with pytest.raises(GenerationError) as e:
+            generate(wf, pathlib.Path(request.node.path.parent))
+        actual = {}
+        for err in e.value.errors:
+            assert (
+                pathlib.Path(err.filename) == this_call.file
+            ), f"unexpected filename: {err}"
+            assert err.workflow_id == func.__name__, f"unexpected workflow_id: {err}"
+            assert (
+                err.lineno not in actual
+            ), "multiple errors on the same line, that's not yet supported"
+            actual[err.lineno] = err.message
+        if request.config.getoption("--learn"):
+            for call, expected in expected_errors:
+                request.config.stash[_learn].append((call, None))
+            for lineno, message in actual.items():
+                request.config.stash[_learn].append(
+                    (
+                        _Call(
+                            "error", this_call.file, dis.Positions(lineno, col_offset=4)
+                        ),
+                        message,
+                    )
+                )
+        else:
+            expected = {}
+            for call, e in expected_errors:
+                if e is None:
+                    actual_error = actual.pop(call.position.end_lineno + 1, None)
+                    assert (
+                        actual_error
+                    ), f"missing error at line {call.position.end_lineno + 1}"
+                    request.config.stash[_learn].append((call, actual_error))
+                else:
+                    expected[call.position.end_lineno + 1] = e
+            assert actual == expected, f"errors do not match"
+
+    return wrapper
 
 
 def pytest_unconfigure(config):
     changes = {}
     for call, expected in config.stash[_learn]:
-        changes.setdefault(call.file, []).append(
-            (call.startline, call.endline, call.name, expected)
-        )
+        changes.setdefault(call.file, []).append((call.position, call.name, expected))
     for v in changes.values():
         v.sort()
     for f, v in changes.items():
@@ -99,12 +125,23 @@ def pytest_unconfigure(config):
         with open(bkp) as input, open(f, "w") as output:
             input = iter(input)
             current = 1
-            for startline, endline, name, expected in v:
-                for _ in range(startline - current):
+            for position, name, expected in v:
+                for _ in range(position.lineno - current):
                     output.write(next(input))
-                for _ in range(endline - startline + 1):
-                    next(input)
-                print(f'@{name}(\n    """\n{expected}\n"""\n)', file=output)
-                current = endline + 1
+                if position.end_lineno:
+                    line = next(input)
+                    if expected:
+                        output.write(line[: position.col_offset])
+                    for _ in range(position.end_lineno - position.lineno):
+                        next(input)
+                elif expected:
+                    output.write(position.col_offset * " ")
+                if expected and "\n" in expected:
+                    print(f'{name}(\n    """\n{expected}\n"""\n)', file=output)
+                elif expected:
+                    print(f'{name}("{expected}")', file=output)
+                current = (
+                    position.end_lineno + 1 if position.end_lineno else position.lineno
+                )
             for line in input:
                 output.write(line)
