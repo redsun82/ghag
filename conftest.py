@@ -1,9 +1,8 @@
 import dataclasses
-import typing
 
 import pytest
 
-from src.pyactions.ctx import workflow
+from src.pyactions.ctx import workflow, GenerationError
 from src.pyactions import generate
 import pathlib
 import inspect
@@ -43,7 +42,7 @@ def pytest_configure(config: pytest.Config):
 
 
 def expect(expected: str | None = None):
-    assert isinstance(expected, str | None), "replace @expect with @expect()"
+    assert not callable(expected), "replace @expect with @expect()"
     expected = expected and expected.lstrip("\n")
     call = _Call.get()
 
@@ -63,12 +62,34 @@ def expect(expected: str | None = None):
 
     return decorator
 
+def expect_errors(expected: str | None = None):
+    assert not callable(expected), "replace @expect_errors with @expect_errors()"
+    expected = expected and expected.lstrip("\n")
+    call = _Call.get()
+
+    def decorator(f):
+        def wrapper(request: pytest.FixtureRequest):
+            wf = workflow(f)
+            with pytest.raises(GenerationError) as e:
+                generate(wf, pathlib.Path(request.node.path.parent))
+            for err in e.value.errors:
+                err.filename = str(pathlib.Path(err.filename).relative_to(request.node.path.parent))
+            actual = map(str, e.value.errors)
+            if expected is None or request.config.getoption("--learn"):
+                request.config.stash[_learn].append((call, "\n".join(actual)))
+            else:
+                assert actual == expected.splitlines()
+
+        return wrapper
+
+    return decorator
+
 
 def pytest_unconfigure(config):
     changes = {}
     for call, expected in config.stash[_learn]:
         changes.setdefault(call.file, []).append(
-            (call.startline, call.endline, expected)
+            (call.startline, call.endline, call.name, expected)
         )
     for v in changes.values():
         v.sort()
@@ -78,12 +99,12 @@ def pytest_unconfigure(config):
         with open(bkp) as input, open(f, "w") as output:
             input = iter(input)
             current = 1
-            for startline, endline, expected in v:
+            for startline, endline, name, expected in v:
                 for _ in range(startline - current):
                     output.write(next(input))
                 for _ in range(endline - startline + 1):
                     next(input)
-                print(f'@expect(\n    """\n{expected}\n"""\n)', file=output)
+                print(f'@{name}(\n    """\n{expected}\n"""\n)', file=output)
                 current = endline + 1
             for line in input:
                 output.write(line)

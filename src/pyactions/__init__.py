@@ -2,13 +2,13 @@ import argparse
 import logging
 import typing
 import pathlib
+
 from ruamel.yaml import YAML
 
 from .ctx import WorkflowInfo
 
 yaml = YAML()
 yaml.default_flow_style = False
-
 
 def generate(w: WorkflowInfo, dir: pathlib.Path) -> pathlib.Path:
     output = (dir / w.id).with_suffix(".yml")

@@ -1,6 +1,7 @@
+import inspect
 import typing
 import warnings
-from dataclasses import dataclass, fields, asdict
+from dataclasses import dataclass, fields, asdict, field
 import dataclasses
 import threading
 
@@ -10,9 +11,33 @@ from .workflow import *
 
 
 @dataclass
+class Error:
+    filename: str
+    lineno: int
+    workflow_id: str
+    message: str
+
+    def __str__(self):
+        return f"{self.filename}:{self.lineno} [{self.workflow_id}] {self.message}"
+
+@dataclass
 class _Context(threading.local):
     current: Workflow | Job | None = None
     current_workflow_id: str | None = None
+    errors: list[Error] = field(default_factory=list)
+
+    def error(self, message: str, level: int =2):
+        frame = inspect.currentframe()
+        for _ in range(level):
+            frame = frame.f_back
+        frame = inspect.getframeinfo(frame)
+        error = Error(frame.filename, frame.lineno, self.current_workflow_id, message)
+        self.errors.append(error)
+
+    def check(self, cond: bool, message: str, level=2):
+        if not cond:
+            self.error(message, level)
+        return cond
 
 
 _ctx = _Context()
@@ -48,33 +73,39 @@ def _get_field(
     return instance or current(), ret
 
 
-def _merge[T](lhs: T | None, rhs: T | None) -> T | None:
-    match (lhs, rhs):
-        case None, _:
-            return rhs
-        case _, None:
-            return lhs
-        case dict(), dict():
-            return lhs | rhs
-        case list(), list():
-            return lhs + rhs
-        case Element(), Element():
-            assert type(lhs) is type(rhs)
-            data = {
-                f.name: _merge(getattr(lhs, f.name), getattr(rhs, f.name))
-                for f in fields(lhs)
-            }
-            return type(lhs)(**data)
-        case _:
-            assert type(lhs) is type(rhs)
-            return rhs
-
+def _merge[T](field: str, level: int, lhs: T | None, rhs: T | None) -> T | None:
+    try:
+        match (lhs, rhs):
+            case None, _:
+                return rhs
+            case _, None:
+                return lhs
+            case dict(), dict():
+                return lhs | rhs
+            case list(), list():
+                return lhs + rhs
+            case list(), str() | bytes():
+                assert False
+            case list(), typing.Iterable():
+                return lhs + list(rhs)
+            case Element(), Element():
+                assert type(lhs) is type(rhs)
+                data = {
+                    f.name: _merge(f.name, level + 1, getattr(lhs, f.name), getattr(rhs, f.name))
+                    for f in fields(lhs)
+                }
+                return type(lhs)(**data)
+            case _:
+                assert type(lhs) is type(rhs)
+                return rhs
+    except AssertionError as e:
+        _ctx.error(f"Cannot assign {type(rhs).__name__} to {field}", level=level + 2)
 
 def _update_field(field: str, *args, **kwargs) -> typing.Any:
     instance, f = _get_field(field)
     current_value = getattr(instance, field)
     value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
-    value = _merge(current_value, value)
+    value = _merge(field, 2, current_value, value)
     setattr(instance, field, value)
     return value
 
@@ -85,9 +116,17 @@ def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
     _, sf = _get_field(subfield, value)
     subvalue = args[0] if len(args) == 1 and not kwargs else sf.type(*args, **kwargs)
     setattr(value, subfield, subvalue)
-    value = _merge(getattr(instance, field), value)
+    value = _merge(subfield, 2, getattr(instance, field), value)
     setattr(instance, field, value)
     return value
+
+
+class GenerationError(Exception):
+    def __init__(self, errors: list[Error]):
+        self.errors = errors
+
+    def __str__(self):
+        return "\n".join(map(str, self.errors))
 
 
 @dataclass
@@ -101,6 +140,10 @@ class WorkflowInfo:
         self.spec()
         _ctx.current = None
         _ctx.current_workflow_id = None
+        errors = _ctx.errors
+        _ctx.errors = []
+        if errors:
+            raise GenerationError(errors)
         return ret
 
 
