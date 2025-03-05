@@ -1,3 +1,5 @@
+import typing
+
 from conftest import expect
 from src.pyactions.ctx import *
 
@@ -503,28 +505,48 @@ on:
     inputs:
       foo:
         description: a foo
-        required: false
-        type: string
+        required: true
+        type: number
       bar:
-        required: false
-        type: string
+        required: true
+        type: choice
+        options:
+        - apple
+        - orange
+        - banana
+      c:
+        required: true
+        type: choice
+        options:
+        - one
+        - two
       baz:
         required: false
         default: 42
-        type: string
+        type: number
   workflow-dispatch:
     inputs:
       foo:
         description: a foo
-        required: false
-        type: string
+        required: true
+        type: number
       bar:
-        required: false
-        type: string
+        required: true
+        type: choice
+        options:
+        - apple
+        - orange
+        - banana
+      c:
+        required: true
+        type: choice
+        options:
+        - one
+        - two
       baz:
         required: false
         default: 42
-        type: string
+        type: number
 jobs:
   test_inputs_from_parameters:
     runs-on: ubuntu-latest
@@ -532,5 +554,8 @@ jobs:
     - run: foo is ${{ inputs.foo }}
 """
 )
-def test_inputs_from_parameters(foo: Input("a foo"), bar, baz=42):
+def test_inputs_from_parameters(foo: Input[int], bar, c: Choice["one", "two"], baz=42):
+    foo.description = "a foo"
+    bar.type = "choice"
+    bar.options = ["apple", "orange", "banana"]
     run(f"foo is {foo}")

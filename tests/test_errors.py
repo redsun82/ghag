@@ -54,11 +54,14 @@ def test_job_outside_workflow():
         def no():
             pass
 
-    (error,) = e.value.errors
-    assert error.lineno == inspect.getsourcelines(test_job_outside_workflow)[1] + 3
-    assert error.filename == __file__
-    assert error.workflow_id is None
-    assert error.message == "job `no` not created directly inside a workflow body"
+    assert e.value.errors == [
+        Error(
+            __file__,
+            lineno=inspect.getsourcelines(test_job_outside_workflow)[1] + 3,
+            workflow_id=None,
+            message="job `no` not created directly inside a workflow body",
+        ),
+    ]
 
 
 @expect_errors
@@ -103,3 +106,21 @@ def test_workflow_fields_in_auto_job(error):
         "`on` is not a job field, and an implicit job was created when setting `runs_on`"
     )
     on.workflow_dispatch()
+
+
+def test_wrong_annotation():
+    @workflow
+    def wf(x: None, y: list[int]):
+        pass
+
+    with pytest.raises(GenerationError) as e:
+        wf.instantiate()
+    assert e.value.errors == [
+        Error(
+            __file__,
+            lineno=inspect.getsourcelines(test_wrong_annotation)[1] + 1,
+            workflow_id="wf",
+            message=f"unexpected type annotation for workflow parameter `{p}`",
+        )
+        for p in ("x: None", "y: list")
+    ]

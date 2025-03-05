@@ -1,7 +1,6 @@
 import contextlib
 import inspect
 import typing
-import warnings
 from dataclasses import dataclass, fields, asdict, field
 import dataclasses
 import threading
@@ -15,7 +14,7 @@ from .workflow import *
 class Error:
     filename: str
     lineno: int
-    workflow_id: str
+    workflow_id: str | None
     message: str
 
     def __str__(self):
@@ -36,7 +35,11 @@ class _Context(threading.local):
         self.errors = []
 
     def empty(self) -> bool:
-        return not self.current and not self.current_workflow_id and not self.errors
+        return (
+            not self.current
+            and not self.current_workflow_id
+            and not self.auto_job_reason
+        )
 
     def error(self, message: str, level: int = 2):
         frame = inspect.currentframe()
@@ -224,29 +227,21 @@ class GenerationError(Exception):
 class WorkflowInfo:
     id: str
     spec: typing.Callable[..., None]
+    inputs: dict[str, Input]
 
     def instantiate(self) -> Workflow:
         with _build_workflow(self.id) as wf:
+            for e in _ctx.errors:
+                e.workflow_id = e.workflow_id or current_workflow_id()
             wf.name = self.spec.__doc__
-            signature = inspect.signature(self.spec)
-            inputs = {}
-            for key, param in signature.parameters.items():
-                default = param.default
-                match param.annotation:
-                    case Input() as i:
-                        input_params = {f.name: getattr(i, f.name) for f in fields(i)}
-                        if default is not inspect.Parameter.empty:
-                            input_params["default"] = default
-                        inputs[key] = input(key, **input_params)
-                    case _:
-                        inputs[key] = input(
-                            key,
-                            default=(
-                                default
-                                if default is not inspect.Parameter.empty
-                                else None
-                            ),
-                        )
+            inputs = {
+                key: (
+                    input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
+                    if i is not None
+                    else InputProxy(key)
+                )
+                for key, i in self.inputs.items()
+            }
             self.spec(**inputs)
             return wf
 
@@ -257,7 +252,28 @@ def workflow(
     if func is None:
         return lambda func: workflow(func, id=id)
     id = id or func.__name__
-    return WorkflowInfo(id, func)
+    signature = inspect.signature(func)
+    inputs = {}
+    for key, param in signature.parameters.items():
+        key = key.replace("_", "-")
+        default = param.default
+        type = typing.get_origin(param.annotation) or param.annotation
+        if type not in (Input, Choice, inspect.Parameter.empty):
+            _ctx.error(
+                f"unexpected type annotation for workflow parameter `{key}: {getattr(type, "__name__", type)}`"
+            )
+            inputs[key] = None
+        else:
+            type_args = typing.get_args(param.annotation)
+            if type is Choice:
+                type_args = (typing.Literal[type_args],)
+            inputs[key] = Input(
+                required=default is inspect.Parameter.empty,
+                type=type_args[0] if type_args else None,
+                default=default if default is not inspect.Parameter.empty else None,
+            )
+
+    return WorkflowInfo(id, func, inputs)
 
 
 def job(
@@ -326,10 +342,14 @@ class _OnUpdater:
 on = _OnUpdater()
 
 
-def input(key: str, *args, **kwargs) -> Expr:
+def input(key: str, *args, **kwargs) -> InputProxy:
     on.workflow_dispatch.input(key, *args, **kwargs)
     on.workflow_call.input(key, *args, **kwargs)
-    return Expr(f"inputs.{key}")
+    return InputProxy(
+        key,
+        current().on.workflow_dispatch.inputs[key],
+        current().on.workflow_call.inputs[key],
+    )
 
 
 class _StrategyUpdater:

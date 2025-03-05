@@ -1,8 +1,9 @@
+import dataclasses
 import typing
 
 from .element import element, Element
 from typing import ClassVar, Any, cast
-from .expr import Value
+from .expr import Value, Expr
 from dataclasses import field
 
 __all__ = [
@@ -18,18 +19,54 @@ __all__ = [
     "Workflow",
     "Input",
     "Secret",
+    "InputProxy",
+    "Choice",
 ]
 
 
 @element
-class Input:
+class Input[T]:
     description: str
     required: bool = False
-    default: typing.Any
+    default: T
     type: typing.Literal["boolean", "choice", "number", "environment", "string"] = (
         "string"
     )
     options: list[str]
+
+    def __post_init__(self):
+        if self.type is None and self.default is not None:
+            self.type = type(self.default)
+        if self.type is bool:
+            self.type = "boolean"
+        elif self.type in (int, float):
+            self.type = "number"
+        elif self.type is str:
+            self.type = "string"
+        elif typing.get_origin(self.type) is typing.Literal:
+            self.options = list(typing.get_args(self.type))
+            self.type = "choice"
+        elif (typing.get_origin(self.type) or self.type) is dict:
+            self.type = "environment"
+
+
+type Choice[*Args] = Input[typing.Literal[*Args]]
+
+
+@dataclasses.dataclass
+class InputProxy(Expr):
+    proxied: list[Input] = dataclasses.field(default_factory=list)
+
+    def __init__(self, key: str, *proxied: Input):
+        super().__init__(f"inputs.{key}")
+        self.proxied = list(proxied)
+
+    def __setattr__(self, name, value):
+        if any(f.name == name for f in dataclasses.fields(Input)):
+            for p in self.proxied:
+                setattr(p, name, value)
+        else:
+            super().__setattr__(name, value)
 
 
 @element

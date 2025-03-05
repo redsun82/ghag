@@ -29,7 +29,7 @@ def asobj(o: typing.Any):
 def element(cls: type) -> type:
     if not issubclass(cls, Element):
         annotations = cls.__annotations__
-        cls = type(cls.__name__, (Element,), dict(cls.__dict__))
+        cls = type(cls.__name__, (Element,) + cls.__bases__, dict(cls.__dict__))
         cls.__annotations__ = annotations
     for f in cls.__annotations__:
         if not hasattr(cls, f):
