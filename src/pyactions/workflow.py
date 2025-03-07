@@ -102,6 +102,7 @@ class On:
 
 @element
 class Step:
+    id: str
     name: Value[str]
     if_: Value[bool]
     continue_on_error: Value[bool]
@@ -169,6 +170,9 @@ class Job:
     strategy: Strategy
     env: dict[str, Value]
     steps: list[Step]
+
+    def step_by_id(self, id: str) -> Step | None:
+        return next((s for s in self.steps if s.id == id), None)
 
 
 @element

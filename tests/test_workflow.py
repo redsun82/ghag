@@ -559,3 +559,26 @@ def test_inputs_from_parameters(foo: Input[int], bar, c: Choice["one", "two"], b
     bar.type = "choice"
     bar.options = ["apple", "orange", "banana"]
     run(f"foo is {foo}")
+
+
+@expect(
+    """
+on: {}
+jobs:
+  test_id:
+    runs-on: ubuntu-latest
+    steps:
+    - id: one
+      run: one
+    - id: y-1
+      run: ${{ steps.one.outputs.foo }}
+    - id: y
+      run: ${{ steps.y-1.outcome }}
+    - run: ${{ steps.y.result }}
+"""
+)
+def test_id():
+    x = step.id("one").run("one")
+    y = step.run(x.outputs.foo)
+    z = step.id("y").run(y.outcome)
+    step.run(z.result)

@@ -1,5 +1,6 @@
 import contextlib
 import inspect
+import itertools
 import typing
 from dataclasses import dataclass, fields, asdict, field
 import dataclasses
@@ -378,68 +379,122 @@ class _StepUpdater:
         return self.name(name)
 
     @property
-    def step(self) -> Step | None:
+    def _step(self) -> Step | None:
         return self.steps[-1] if self.steps else None
 
     def _ensure_step(self) -> typing.Self:
-        if self.step is not None:
+        if self._step is not None:
             return self
         steps = _update_field("steps", [Step()])
         return _StepUpdater(steps)
 
     def _ensure_run_step(self) -> typing.Self:
         ret = self._ensure_step()
-        match ret.step:
+        match ret._step:
             case RunStep():
                 pass
             case UseStep():
                 assert False, "cannot turn a `use` step into a `run` one"
             case _:
-                ret.steps[-1] = RunStep(**asdict(ret.step))
+                ret.steps[-1] = RunStep(**asdict(ret._step))
         return ret
 
     def _ensure_use_step(self) -> typing.Self:
         ret = self._ensure_step()
-        match ret.step:
+        match ret._step:
             case RunStep():
                 assert False, "cannot turn a `run` step into a `use` one"
             case UseStep():
                 pass
             case _:
-                ret.steps[-1] = UseStep(**asdict(ret.step))
+                ret.steps[-1] = UseStep(**asdict(ret._step))
+        return ret
+
+    def id(self, id: str) -> typing.Self:
+        ret = self._ensure_step()
+        if current().step_by_id(id) is not None:
+            _ctx.error(f"id `{id}` was already specified for a step")
+        else:
+            ret._step.id = id
         return ret
 
     def name(self, name: Value[str]) -> typing.Self:
         ret = self._ensure_step()
-        ret.step.name = name
+        ret._step.name = name
         return ret
 
     def if_(self, condition: Value[bool]) -> typing.Self:
         ret = self._ensure_step()
-        ret.step.if_ = condition
+        ret._step.if_ = condition
         return ret
 
     def env(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_run_step()
-        ret.step.env = (ret.step.env or {}) | dict(*args, **kwargs)
+        ret._step.env = (ret._step.env or {}) | dict(*args, **kwargs)
         return ret
 
     def run(self, code: Value[str]):
         ret = self._ensure_run_step()
-        ret.step.run = code
+        ret._step.run = code
         return ret
 
     def use(self, source: Value[str], **kwargs):
         ret = self._ensure_use_step()
-        ret.step.use = source
+        ret._step.use = source
         if kwargs:
             ret.with_(kwargs)
         return ret
 
     def with_(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_use_step()
-        ret.step.with_ = (ret.step.with_ or {}) | dict(*args, **kwargs)
+        ret._step.with_ = (ret._step.with_ or {}) | dict(*args, **kwargs)
         return ret
+
+    def _allocate_id(self, prefix: str) -> str:
+        if current().step_by_id(prefix) is None:
+            return prefix
+        return next(
+            (
+                id
+                for id in (f"{prefix}-{i}" for i in itertools.count(1))
+                if current().step_by_id(id) is None
+            )
+        )
+
+    def _ensure_id(self, level: int = 0) -> str:
+        if self._step and self._step.id is not None:
+            return self._step.id
+        frame = inspect.currentframe()
+        for _ in range(level + 1):
+            frame = frame.f_back
+        id = next((var for var, value in frame.f_locals.items() if value is self), None)
+        if id is None:
+            id = self._allocate_id("step")
+        elif current().step_by_id(id) is not None:
+            id = self._allocate_id(id)
+        self.id(id)
+        return id
+
+    @property
+    def outputs(self):
+        if self._step is None:
+            raise AttributeError("outputs")
+        id = self._ensure_id(level=1)
+        return Expr(f"steps.{id}.outputs")
+
+    @property
+    def outcome(self):
+        if self._step is None:
+            raise AttributeError("outcome")
+        id = self._ensure_id(level=1)
+        return Expr(f"steps.{id}.outcome")
+
+    @property
+    def result(self):
+        if self._step is None:
+            raise AttributeError("result")
+        id = self._ensure_id(level=1)
+        return Expr(f"steps.{id}.result")
 
 
 step = _StepUpdater()
