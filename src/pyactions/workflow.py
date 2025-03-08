@@ -1,8 +1,8 @@
 import dataclasses
 import typing
 
-from .element import element, Element
-from typing import ClassVar, Any, cast
+from .element import Element
+from typing import Any, cast
 from .expr import Value, Expr
 from dataclasses import field
 
@@ -24,8 +24,7 @@ __all__ = [
 ]
 
 
-@element
-class Input[T]:
+class Input[T](Element):
     description: str
     required: bool = False
     default: T
@@ -53,7 +52,6 @@ class Input[T]:
 type Choice[*Args] = Input[typing.Literal[*Args]]
 
 
-@dataclasses.dataclass
 class InputProxy(Expr):
     proxied: list[Input] = dataclasses.field(default_factory=list)
 
@@ -69,72 +67,50 @@ class InputProxy(Expr):
             super().__setattr__(name, value)
 
 
-@element
-class Secret:
+class Secret(Element):
     description: str
     required: bool = False
 
 
-@element
-class PullRequest:
+class PullRequest(Element):
     branches: list[str]
     paths: list[str]
 
 
-@element
-class WorkflowDispatch:
+class WorkflowDispatch(Element):
     inputs: dict[str, Input]
 
 
-@element
-class WorkflowCall:
+class WorkflowCall(Element):
     inputs: dict[str, Input]
     secrets: dict[str, Secret]
     # TODO outputs
 
 
-@element
-class On:
+class On(Element):
     workflow_call: WorkflowCall
     workflow_dispatch: WorkflowDispatch
     pull_request: PullRequest
 
 
-@element
-class Step:
+class Step(Element):
     id: str
     name: Value[str]
     if_: Value[bool]
     continue_on_error: Value[bool]
 
 
-@element
 class RunStep(Step):
     run: Value[str]
     env: dict[str, Value[str]]
 
 
-@element
 class UseStep(Step):
     use: str
     with_: dict[str, Value[str | bool | int | float]]
 
 
-@element
-class Run(Step):
-    run: str
-    shell: str
-    working_directory: str
-
-
-@element
-class Use(Step):
-    use: str
-    with_: dict[str, str]
-
-
-@element
-class Matrix:
+class Matrix(Element):
     include: list[dict[str, str]]
     exclude: list[dict[str, str]]
     values: dict[str, list[str]]
@@ -156,15 +132,13 @@ class Matrix:
         return ret
 
 
-@element
-class Strategy:
+class Strategy(Element):
     matrix: Matrix
     fail_fast: Value[bool]
     max_parallel: Value[int]
 
 
-@element
-class Job:
+class Job(Element):
     name: str
     runs_on: str = "ubuntu-latest"
     strategy: Strategy
@@ -175,8 +149,7 @@ class Job:
         return next((s for s in self.steps if s.id == id), None)
 
 
-@element
-class Workflow:
+class Workflow(Element):
     name: str
     on: On = field(default_factory=On)
     env: dict[str, Value]

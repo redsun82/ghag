@@ -192,8 +192,9 @@ def _update_field_with_level(field: str, level: int, *args, **kwargs) -> typing.
     instance, f = _get_field(field, level=level)
     if not f:
         return None
-    current_value = getattr(instance, field) or f.type()
-    value = args[0] if len(args) == 1 and not kwargs else f.type(*args, **kwargs)
+    ty = f.metadata.get("original_type", f.type)
+    current_value = getattr(instance, field) or ty()
+    value = args[0] if len(args) == 1 and not kwargs else ty(*args, **kwargs)
     value = _merge(field, current_value, value, level=level)
     setattr(instance, field, value)
     return value
@@ -210,7 +211,8 @@ def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
     _, sf = _get_field(subfield, value)
     if not sf:
         return None
-    subvalue = args[0] if len(args) == 1 and not kwargs else sf.type(*args, **kwargs)
+    ty = sf.metadata.get("original_type", sf.type)
+    subvalue = args[0] if len(args) == 1 and not kwargs else ty(*args, **kwargs)
     subvalue = _merge(subfield, getattr(value, subfield), subvalue)
     setattr(value, subfield, subvalue)
     return subvalue

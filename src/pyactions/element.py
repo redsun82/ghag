@@ -4,6 +4,8 @@ import typing
 
 @dataclasses.dataclass
 class Element:
+    _: dataclasses.KW_ONLY
+
     def asdict(self) -> typing.Any:
         return {
             k.rstrip("_").replace("_", "-"): asobj(v)
@@ -12,6 +14,20 @@ class Element:
             )
             if v is not None
         }
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for f in cls.__annotations__:
+            # add `None` as default value for all fields not having a default already
+            if not hasattr(cls, f):
+                ty = cls.__annotations__[f]
+                cls.__annotations__[f] |= None
+                setattr(
+                    cls,
+                    f,
+                    dataclasses.field(default=None, metadata={"original_type": ty}),
+                )
+        dataclasses.dataclass(cls)
 
 
 def asobj(o: typing.Any):
@@ -24,14 +40,3 @@ def asobj(o: typing.Any):
             return [asobj(x) for x in l]
         case _:
             return o
-
-
-def element(cls: type) -> type:
-    if not issubclass(cls, Element):
-        annotations = cls.__annotations__
-        cls = type(cls.__name__, (Element,) + cls.__bases__, dict(cls.__dict__))
-        cls.__annotations__ = annotations
-    for f in cls.__annotations__:
-        if not hasattr(cls, f):
-            setattr(cls, f, None)
-    return dataclasses.dataclass(cls)
