@@ -100,6 +100,12 @@ class Step(Element):
     if_: Value[bool]
     continue_on_error: Value[bool]
 
+    def asdict(self) -> typing.Any:
+        ret = super().asdict()
+        if isinstance(self.if_, Expr):
+            ret["if"] = self.if_._value
+        return ret
+
 
 class RunStep(Step):
     run: Value[str]

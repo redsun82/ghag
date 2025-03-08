@@ -501,3 +501,27 @@ def test_id():
 
     code = "\n".join(str(step(f"anon{i}").outcome) for i in range(3))
     step("use anonymous").run(code)
+
+
+@expect(
+    """
+on: {}
+jobs:
+  test_if_expr:
+    runs-on: ubuntu-latest
+    steps:
+    - id: x
+      run: |
+        one
+    - if: steps.x.outcome == 'success'
+      run: |
+        two
+    - if: '!steps.x.outputs'
+      run: |
+        three
+"""
+)
+def test_if_expr():
+    x = step.run("one")
+    step.run("two").if_(x.outcome == "success")
+    step.run("three").if_(~x.outputs)
