@@ -8,7 +8,7 @@ from ruamel.yaml import YAML
 from .ctx import WorkflowInfo
 
 yaml = YAML()
-yaml.default_flow_style = False
+yaml.default_flow_style = None
 
 
 def generate(w: WorkflowInfo, dir: pathlib.Path) -> pathlib.Path:
