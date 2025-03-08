@@ -467,16 +467,37 @@ jobs:
         one
     - id: y-1
       run: |
-        ${{ steps.one.outputs.foo }}
+        two
     - id: y
       run: |
+        three
+    - name: use x
+      run: |
+        ${{ steps.one.outputs }}
+    - name: use y
+      run: |
         ${{ steps.y-1.outcome }}
-    - run: |
+    - name: use z
+      run: |
         ${{ steps.y.result }}
+    - {id: step-1, name: anon0}
+    - {id: step-2, name: anon1}
+    - {id: step-3, name: anon2}
+    - name: use anonymous
+      run: |
+        ${{ steps.step-1.outcome }}
+        ${{ steps.step-2.outcome }}
+        ${{ steps.step-3.outcome }}
 """
 )
 def test_id():
     x = step.id("one").run("one")
-    y = step.run(x.outputs.foo)
-    z = step.id("y").run(y.outcome)
-    step.run(z.result)
+    y = step.run("two")
+    z = step.id("y").run("three")
+
+    step("use x").run(x.outputs)
+    step("use y").run(y.outcome)
+    step("use z").run(z.result)
+
+    code = "\n".join(str(step(f"anon{i}").outcome) for i in range(3))
+    step("use anonymous").run(code)

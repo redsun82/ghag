@@ -452,8 +452,8 @@ class _StepUpdater:
         ret._step.with_ = (ret._step.with_ or {}) | dict(*args, **kwargs)
         return ret
 
-    def _allocate_id(self, prefix: str) -> str:
-        if current().step_by_id(prefix) is None:
+    def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
+        if not start_from_one and current().step_by_id(prefix) is None:
             return prefix
         return next(
             (
@@ -471,7 +471,7 @@ class _StepUpdater:
             frame = frame.f_back
         id = next((var for var, value in frame.f_locals.items() if value is self), None)
         if id is None:
-            id = self._allocate_id("step")
+            id = self._allocate_id("step", start_from_one=True)
         elif current().step_by_id(id) is not None:
             id = self._allocate_id(id)
         self.id(id)
