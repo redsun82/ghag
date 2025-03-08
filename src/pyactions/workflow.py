@@ -6,6 +6,7 @@ from typing import Any, cast
 from .expr import Value, Expr
 from dataclasses import field
 from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.comments import CommentedMap
 
 __all__ = [
     "PullRequest",
@@ -104,6 +105,8 @@ class Step(Element):
         ret = super().asdict()
         if isinstance(self.if_, Expr):
             ret["if"] = self.if_._value
+        ret = CommentedMap(ret)
+        ret.fa.set_block_style()
         return ret
 
 
@@ -114,9 +117,10 @@ class RunStep(Step):
     def asdict(self) -> typing.Any:
         ret = super().asdict()
         run = ret["run"]
-        if run and run[-1] != "\n":
-            run += "\n"
-        ret["run"] = LiteralScalarString(run)
+        if "\n" in run:
+            if run[-1] != "\n":
+                run += "\n"
+            ret["run"] = LiteralScalarString(run)
         return ret
 
 

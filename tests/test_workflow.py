@@ -274,15 +274,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: salutations
-      run: |
-        echo hello
-    - run: |
-        echo $WHO
+      run: echo hello
+    - run: echo $WHO
       env: {WHO: world}
     - name: catastrophe
       if: failure()
-      run: |
-        echo oh no
+      run: echo oh no
     - use: actions/checkout@v4
       with: {ref: dev}
     - use: ./my_action
@@ -404,8 +401,7 @@ jobs:
   test_use_input_as_expr:
     runs-on: ubuntu-latest
     steps:
-    - run: |
-        foo is ${{ inputs.foo }}
+    - run: foo is ${{ inputs.foo }}
 """
 )
 def test_use_input_as_expr():
@@ -444,8 +440,7 @@ jobs:
   test_inputs_from_parameters:
     runs-on: ubuntu-latest
     steps:
-    - run: |
-        foo is ${{ inputs.foo }}
+    - run: foo is ${{ inputs.foo }}
 """
 )
 def test_inputs_from_parameters(foo: Input[int], bar, c: Choice["one", "two"], baz=42):
@@ -463,26 +458,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - id: one
-      run: |
-        one
+      run: one
     - id: y-1
-      run: |
-        two
+      run: two
     - id: y
-      run: |
-        three
+      run: three
     - name: use x
-      run: |
-        ${{ steps.one.outputs }}
+      run: ${{ steps.one.outputs }}
     - name: use y
-      run: |
-        ${{ steps.y-1.outcome }}
+      run: ${{ steps.y-1.outcome }}
     - name: use z
-      run: |
-        ${{ steps.y.result }}
-    - {id: step-1, name: anon0}
-    - {id: step-2, name: anon1}
-    - {id: step-3, name: anon2}
+      run: ${{ steps.y.result }}
+    - id: step-1
+      name: anon0
+    - id: step-2
+      name: anon1
+    - id: step-3
+      name: anon2
     - name: use anonymous
       run: |
         ${{ steps.step-1.outcome }}
@@ -511,14 +503,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - id: x
-      run: |
-        one
+      run: one
     - if: steps.x.outcome == 'success'
-      run: |
-        two
+      run: two
     - if: '!steps.x.outputs'
-      run: |
-        three
+      run: three
 """
 )
 def test_if_expr():
