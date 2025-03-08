@@ -5,6 +5,7 @@ from .element import Element
 from typing import Any, cast
 from .expr import Value, Expr
 from dataclasses import field
+from ruamel.yaml.scalarstring import LiteralScalarString
 
 __all__ = [
     "PullRequest",
@@ -103,6 +104,14 @@ class Step(Element):
 class RunStep(Step):
     run: Value[str]
     env: dict[str, Value[str]]
+
+    def asdict(self) -> typing.Any:
+        ret = super().asdict()
+        run = ret["run"]
+        if run and run[-1] != "\n":
+            run += "\n"
+        ret["run"] = LiteralScalarString(run)
+        return ret
 
 
 class UseStep(Step):

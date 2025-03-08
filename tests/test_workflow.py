@@ -273,10 +273,16 @@ jobs:
   my_job:
     runs-on: ubuntu-latest
     steps:
-    - {name: salutations, run: echo hello}
-    - run: echo $WHO
+    - name: salutations
+      run: |
+        echo hello
+    - run: |
+        echo $WHO
       env: {WHO: world}
-    - {name: catastrophe, if: failure(), run: echo oh no}
+    - name: catastrophe
+      if: failure()
+      run: |
+        echo oh no
     - use: actions/checkout@v4
       with: {ref: dev}
     - use: ./my_action
@@ -398,7 +404,8 @@ jobs:
   test_use_input_as_expr:
     runs-on: ubuntu-latest
     steps:
-    - {run: 'foo is ${{ inputs.foo }}'}
+    - run: |
+        foo is ${{ inputs.foo }}
 """
 )
 def test_use_input_as_expr():
@@ -437,7 +444,8 @@ jobs:
   test_inputs_from_parameters:
     runs-on: ubuntu-latest
     steps:
-    - {run: 'foo is ${{ inputs.foo }}'}
+    - run: |
+        foo is ${{ inputs.foo }}
 """
 )
 def test_inputs_from_parameters(foo: Input[int], bar, c: Choice["one", "two"], baz=42):
@@ -454,10 +462,17 @@ jobs:
   test_id:
     runs-on: ubuntu-latest
     steps:
-    - {id: one, run: one}
-    - {id: y-1, run: '${{ steps.one.outputs.foo }}'}
-    - {id: y, run: '${{ steps.y-1.outcome }}'}
-    - {run: '${{ steps.y.result }}'}
+    - id: one
+      run: |
+        one
+    - id: y-1
+      run: |
+        ${{ steps.one.outputs.foo }}
+    - id: y
+      run: |
+        ${{ steps.y-1.outcome }}
+    - run: |
+        ${{ steps.y.result }}
 """
 )
 def test_id():
