@@ -1,4 +1,5 @@
 import dataclasses
+import sys
 
 import pytest
 
@@ -8,6 +9,7 @@ import pathlib
 import inspect
 import dis
 import itertools
+import subprocess
 
 
 def pytest_addoption(parser):
@@ -148,3 +150,4 @@ def pytest_unconfigure(config):
                 )
             for line in input:
                 output.write(line)
+    subprocess.run([sys.executable, "-m", "black"] + [f for f in changes])
