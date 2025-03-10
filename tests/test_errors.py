@@ -120,7 +120,7 @@ def test_wrong_annotation():
             __file__,
             lineno=inspect.getsourcelines(test_wrong_annotation)[1] + 1,
             workflow_id="wf",
-            message=f"unexpected type annotation for workflow parameter `{p}`",
+            message=f"unexpected input type `{t}` for workflow parameter `{p}`",
         )
-        for p in ("x: None", "y: list")
+        for p, t in (("x", "None"), ("y", "list[int]"))
     ]

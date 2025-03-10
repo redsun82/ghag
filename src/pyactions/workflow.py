@@ -27,12 +27,14 @@ __all__ = [
 
 
 class Input[T](Element):
+    Type: typing.ClassVar[type] = typing.Literal[
+        "boolean", "choice", "number", "environment", "string"
+    ]
+
     description: str
     required: bool = False
     default: T
-    type: typing.Literal["boolean", "choice", "number", "environment", "string"] = (
-        "string"
-    )
+    type: Type = "string"
     options: list[str]
 
     def __post_init__(self):
@@ -49,6 +51,8 @@ class Input[T](Element):
             self.type = "choice"
         elif (typing.get_origin(self.type) or self.type) is dict:
             self.type = "environment"
+        elif self.type not in (None,) + tuple(typing.get_args(self.Type)):
+            raise ValueError(f"unexpected input type `{self.type}`")
 
 
 type Choice[*Args] = Input[typing.Literal[*Args]]

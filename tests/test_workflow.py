@@ -449,7 +449,7 @@ jobs:
     - run: foo is ${{ inputs.foo }}
 """
 )
-def test_inputs_from_parameters(foo: Input[int], bar, c: Choice["one", "two"], baz=42):
+def test_inputs_from_parameters(foo: int, bar, c: typing.Literal["one", "two"], baz=42):
     foo.description = "a foo"
     bar.type = "choice"
     bar.options = ["apple", "orange", "banana"]

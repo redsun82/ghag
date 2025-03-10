@@ -259,22 +259,24 @@ def workflow(
     inputs = {}
     for key, param in signature.parameters.items():
         key = key.replace("_", "-")
-        default = param.default
-        type = typing.get_origin(param.annotation) or param.annotation
-        if type not in (Input, Choice, inspect.Parameter.empty):
-            _ctx.error(
-                f"unexpected type annotation for workflow parameter `{key}: {getattr(type, "__name__", type)}`"
-            )
-            inputs[key] = None
-        else:
-            type_args = typing.get_args(param.annotation)
-            if type is Choice:
-                type_args = (typing.Literal[type_args],)
+        default = (
+            param.default if param.default is not inspect.Parameter.empty else None
+        )
+        ty = param.annotation
+        if ty is inspect.Parameter.empty:
+            ty = default and type(default)
+        elif ty is None:
+            # force error with correct error message
+            ty = "None"
+        try:
             inputs[key] = Input(
-                required=default is inspect.Parameter.empty,
-                type=type_args[0] if type_args else None,
-                default=default if default is not inspect.Parameter.empty else None,
+                required=param.default is inspect.Parameter.empty,
+                type=ty,
+                default=default,
             )
+        except ValueError as e:
+            _ctx.error(f"{e.args[0]} for workflow parameter `{key}`")
+            inputs[key] = None
 
     return WorkflowInfo(id, func, inputs)
 

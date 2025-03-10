@@ -150,4 +150,5 @@ def pytest_unconfigure(config):
                 )
             for line in input:
                 output.write(line)
-    subprocess.run([sys.executable, "-m", "black"] + [f for f in changes])
+    if changes:
+        subprocess.run([sys.executable, "-m", "black"] + [f for f in changes])
