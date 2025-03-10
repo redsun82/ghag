@@ -286,6 +286,10 @@ jobs:
       with: {arg1: foo, arg2: bar}
     - use: ./my_other_action
       with: {arg1: foo, arg2: bar}
+    - continue-on-error: true
+      run: one
+    - continue-on-error: value
+      run: two
 """
 )
 def test_steps():
@@ -299,6 +303,8 @@ def test_steps():
         step.use("actions/checkout@v4").with_(ref="dev")
         use("./my_action").with_(arg1="foo", arg2="bar")
         use("./my_other_action", arg1="foo", arg2="bar")
+        run("one").continue_on_error()
+        run("two").continue_on_error("value")
 
 
 @expect(

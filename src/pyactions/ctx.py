@@ -447,6 +447,11 @@ class _StepUpdater:
             ret.with_(kwargs)
         return ret
 
+    def continue_on_error(self, value: Value[bool] = True) -> typing.Self:
+        ret = self._ensure_step()
+        ret._step.continue_on_error = value
+        return ret
+
     def with_(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_use_step()
         ret._step.with_ = (ret._step.with_ or {}) | dict(*args, **kwargs)
