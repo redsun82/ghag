@@ -24,31 +24,41 @@ class Error:
 
 @dataclass
 class _Context(threading.local):
-    current: Workflow | Job | None = None
+    current_workflow: Workflow | None = None
+    current_job: Job | None = None
     current_workflow_id: str | None = None
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
 
     def reset(self):
-        self.current = None
+        self.current_workflow = None
+        self.current_job = None
         self.current_workflow_id = None
         self.auto_job_reason = None
         self.errors = []
 
     def empty(self) -> bool:
         return (
-            not self.current
+            not self.current_workflow
+            and not self.current_job
             and not self.current_workflow_id
             and not self.auto_job_reason
         )
 
-    def error(self, message: str, level: int = 2):
+    def error(self, message: str, level: int = 2, detached: bool = False) -> Error:
         frame = inspect.currentframe()
         for _ in range(level):
             frame = frame.f_back
         frame = inspect.getframeinfo(frame)
         error = Error(frame.filename, frame.lineno, self.current_workflow_id, message)
-        self.errors.append(error)
+        if detached:
+            pass
+        elif self.current_workflow:
+            self.errors.append(error)
+        else:
+            # raise immediately
+            raise GenerationError([error])
+        return error
 
     def check(self, cond: bool, message: str, level=2):
         if not cond:
@@ -62,10 +72,10 @@ _ctx = _Context()
 @contextlib.contextmanager
 def _build_workflow(id: str):
     assert _ctx.empty()
-    _ctx.current = Workflow()
+    _ctx.current_workflow = Workflow()
     _ctx.current_workflow_id = id
     try:
-        yield _ctx.current
+        yield _ctx.current_workflow
         if _ctx.errors:
             raise GenerationError(_ctx.errors)
     finally:
@@ -74,34 +84,28 @@ def _build_workflow(id: str):
 
 @contextlib.contextmanager
 def _build_job(id: str):
-    parent = current()
-    job = _ctx.current = Job()
+    previous_job = _ctx.current_job
+    job = _ctx.current_job = Job()
     try:
-        yield _ctx.current
-        if not isinstance(parent, Workflow):
-            if _ctx.auto_job_reason:
-                _ctx.error(
-                    f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{_ctx.auto_job_reason}`",
-                    level=4,
-                )
-            else:
-                _ctx.error(
-                    f"job `{id}` not created directly inside a workflow body", level=4
-                )
-            if current_workflow_id() is None:
-                # we aren't even in a workflow, raise immediately
-                errors = _ctx.errors
-                _ctx.errors = []
-                raise GenerationError(errors)
-        elif id in parent.jobs:
+        yield job
+        if _ctx.auto_job_reason:
+            _ctx.error(
+                f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{_ctx.auto_job_reason}`",
+                level=4,
+            )
+        elif not _ctx.current_workflow or previous_job:
+            _ctx.error(
+                f"job `{id}` not created directly inside a workflow body", level=4
+            )
+        elif id in _ctx.current_workflow.jobs:
             _ctx.error(
                 f"job `{id}` already exists in workflow `{current_workflow_id()}`",
                 level=4,
             )
         else:
-            parent.jobs[id] = job
+            _ctx.current_workflow.jobs[id] = job
     finally:
-        _ctx.current = parent
+        _ctx.current_job = previous_job
 
 
 def _start_auto_job_reason(field: str, level=0) -> Job:
@@ -109,7 +113,7 @@ def _start_auto_job_reason(field: str, level=0) -> Job:
     job = Job(name=current().name)
     if not current().jobs:
         current().jobs[current_workflow_id()] = job
-        _ctx.current = job
+        _ctx.current_job = job
         _ctx.auto_job_reason = field
     else:
         _ctx.error(
@@ -120,7 +124,7 @@ def _start_auto_job_reason(field: str, level=0) -> Job:
 
 
 def current() -> Workflow | Job | None:
-    return _ctx.current
+    return _ctx.current_job or _ctx.current_workflow
 
 
 def current_workflow_id() -> str | None:
@@ -231,11 +235,13 @@ class WorkflowInfo:
     id: str
     spec: typing.Callable[..., None]
     inputs: dict[str, Input]
+    errors: list[Error]
 
     def instantiate(self) -> Workflow:
         with _build_workflow(self.id) as wf:
-            for e in _ctx.errors:
+            for e in self.errors:
                 e.workflow_id = e.workflow_id or current_workflow_id()
+            _ctx.errors += self.errors
             wf.name = self.spec.__doc__
             inputs = {
                 key: (
@@ -257,6 +263,7 @@ def workflow(
     id = id or func.__name__
     signature = inspect.signature(func)
     inputs = {}
+    errors = []
     for key, param in signature.parameters.items():
         key = key.replace("_", "-")
         default = (
@@ -275,15 +282,17 @@ def workflow(
                 default=default,
             )
         except ValueError as e:
-            _ctx.error(f"{e.args[0]} for workflow parameter `{key}`")
+            errors.append(
+                _ctx.error(f"{e.args[0]} for workflow parameter `{key}`", detached=True)
+            )
             inputs[key] = None
 
-    return WorkflowInfo(id, func, inputs)
+    return WorkflowInfo(id, func, inputs, errors)
 
 
 type JobResult = dict[str, Value[str]] | Expr | tuple[Expr, ...] | None
 
-type JobCall = typing.Callable[[], JobResult]
+type JobCall = typing.Callable[..., JobResult]
 
 
 def _job_returns(id: str, result: JobResult):
