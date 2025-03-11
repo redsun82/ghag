@@ -157,6 +157,13 @@ def test_wrong_outputs(error):
 
 
 @expect_errors
+def test_undeclared_step_output(error):
+    x = step("step1").returns("foo")
+    error("`bar` not available in `steps.x.outputs`")
+    step("step2").run(x.outputs.bar)
+
+
+@expect_errors
 def test_wrong_job_needs(error):
     # fmt: off
     error("job `j1` needs job `non_existent` which is currently undefined")

@@ -7,8 +7,16 @@ import dataclasses
 import threading
 
 from .element import Element
-from .expr import Value, Expr
+from .expr import Value, Expr, ErrorExpr
 from .workflow import *
+from . import expr
+
+
+def _expr_error(e: str):
+    _ctx.error(e, level=4)
+
+
+expr.on_error = _expr_error
 
 
 @dataclass
@@ -247,7 +255,7 @@ class WorkflowInfo:
                 key: (
                     input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
                     if i is not None
-                    else InputProxy(key)
+                    else ErrorExpr()
                 )
                 for key, i in self.inputs.items()
             }
@@ -327,11 +335,12 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     for p in inspect.signature(func).parameters:
         if p in _ctx.current_workflow.jobs:
             _update_field_with_level("needs", 1, [p])
+            ret[p] = Expr(f"needs.{p}")
         else:
             _ctx.error(
                 f"job `{id}` needs job `{p}` which is currently undefined", level=3
             )
-        ret[p] = Expr(f"needs.{p}")
+            ret[p] = ErrorExpr()
     return ret
 
 
@@ -529,7 +538,7 @@ class _StepUpdater:
             self._step.run = (
                 f"{self._step.run}\n{out_code}" if self._step.run else out_code
             )
-        return self
+        return ret
 
     def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
         if not start_from_one and current().step_by_id(prefix) is None:

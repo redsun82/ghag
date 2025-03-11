@@ -119,8 +119,8 @@ class RunStep(Step):
 
     def asdict(self) -> typing.Any:
         ret = super().asdict()
-        run = ret["run"]
-        if "\n" in run:
+        run = ret.get("run")
+        if run and "\n" in run:
             if run[-1] != "\n":
                 run += "\n"
             ret["run"] = LiteralScalarString(run)

@@ -1,5 +1,6 @@
 import pytest
 
+from src.pyactions.ctx import GenerationError
 from src.pyactions.expr import *
 
 
@@ -21,8 +22,8 @@ def test_ops():
 def test_no_bool():
     a = Expr("a")
 
-    with pytest.raises(TypeError):
+    with pytest.raises(GenerationError):
         a and a
 
-    with pytest.raises(TypeError):
+    with pytest.raises(GenerationError):
         a or a
