@@ -359,10 +359,6 @@ def runs_on(value: Value[str]):
     _update_field("runs_on", value)
 
 
-def outputs(*args, **kwargs):
-    _update_field("outputs", *args, **kwargs)
-
-
 class _OnUpdater:
     def pull_request(self, **kwargs) -> typing.Self:
         _update_subfield("on", "pull_request", **kwargs)

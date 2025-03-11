@@ -532,29 +532,6 @@ def test_if_expr():
     """
 on: {}
 jobs:
-  j:
-    runs-on: ubuntu-latest
-    outputs:
-      one: ${{ steps.x.outputs.one }}
-      two: ${{ steps.x.outputs.two }}
-      three: ${{ steps.x.outputs.three }}
-    steps:
-    - id: x
-      name: x
-"""
-)
-def test_explicit_outputs():
-    @job
-    def j():
-        x = step("x")
-        outputs(one=x.outputs.one, two=x.outputs.two)
-        outputs({"three": x.outputs.three})
-
-
-@expect(
-    """
-on: {}
-jobs:
   j1:
     runs-on: ubuntu-latest
     outputs:
