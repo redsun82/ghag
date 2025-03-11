@@ -154,3 +154,23 @@ def test_wrong_outputs(error):
     def j4():
         return 42
     # fmt: on
+
+
+@expect_errors
+def test_wrong_job_needs(error):
+    # fmt: off
+    error("job `j1` needs job `non_existent` which is currently undefined")
+    @job
+    def j1(non_existent):
+        pass
+
+    error("job `j2` needs job `j3` which is currently undefined")
+    @job
+    def j2(j3):
+        pass
+
+    error("job `j3` needs job `wat` which is currently undefined")
+    @job
+    def j3(j1, wat, j2):
+        pass
+    # fmt: on

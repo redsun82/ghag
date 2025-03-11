@@ -594,3 +594,36 @@ def test_implicit_outputs():
         x = step("x").returns(one="a", two="b")
         y = step("y").returns(three="c")
         return x.outputs, y.outputs
+
+
+@expect(
+    """
+on: {}
+jobs:
+  j1: {runs-on: ubuntu-latest}
+  j2:
+    needs: [j1]
+    runs-on: ubuntu-latest
+    steps:
+    - run: ${{ needs.j1 }}
+  j3:
+    needs: [j1, j2]
+    runs-on: ubuntu-latest
+    steps:
+    - run: ${{ needs.j1 }}
+    - run: ${{ needs.j2 }}
+"""
+)
+def test_needs():
+    @job
+    def j1():
+        pass
+
+    @job
+    def j2(j1):
+        run(j1)
+
+    @job
+    def j3(j1, j2):
+        run(j1)
+        run(j2)

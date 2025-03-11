@@ -162,6 +162,7 @@ class Strategy(Element):
 
 class Job(Element):
     name: str
+    needs: list[str]
     runs_on: str = "ubuntu-latest"
     outputs: dict[str, Value[str]]
     strategy: Strategy

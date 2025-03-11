@@ -322,6 +322,19 @@ def _job_returns(id: str, result: JobResult):
             )
 
 
+def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
+    ret = {}
+    for p in inspect.signature(func).parameters:
+        if p in _ctx.current_workflow.jobs:
+            _update_field_with_level("needs", 1, [p])
+        else:
+            _ctx.error(
+                f"job `{id}` needs job `{p}` which is currently undefined", level=3
+            )
+        ret[p] = Expr(f"needs.{p}")
+    return ret
+
+
 def job(
     func: JobCall | None = None, *, id: str | None = None
 ) -> typing.Callable[[JobCall], None] | None:
@@ -330,7 +343,8 @@ def job(
     id = id or func.__name__
     with _build_job(id) as j:
         j.name = func.__doc__
-        _job_returns(id, func())
+        input = _job_needs(id, func)
+        _job_returns(id, func(**input))
 
 
 def name(value: str):
