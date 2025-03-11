@@ -22,7 +22,6 @@ __all__ = [
     "Input",
     "Secret",
     "InputProxy",
-    "Choice",
 ]
 
 
@@ -53,9 +52,6 @@ class Input[T](Element):
             self.type = "environment"
         elif self.type not in (None,) + tuple(typing.get_args(self.Type)):
             raise ValueError(f"unexpected input type `{self.type}`")
-
-
-type Choice[*Args] = Input[typing.Literal[*Args]]
 
 
 class InputProxy(Expr):
@@ -164,12 +160,22 @@ class Strategy(Element):
 class Job(Element):
     name: str
     runs_on: str = "ubuntu-latest"
+    outputs: dict[str, Value[str]]
     strategy: Strategy
-    env: dict[str, Value]
+    env: dict[str, Value[str]]
     steps: list[Step]
 
     def step_by_id(self, id: str) -> Step | None:
         return next((s for s in self.steps if s.id == id), None)
+
+    def asdict(self) -> typing.Any:
+        ret = super().asdict()
+        outputs = ret.get("outputs")
+        if outputs:
+            outputs = CommentedMap(outputs)
+            outputs.fa.set_block_style()
+            ret["outputs"] = outputs
+        return ret
 
 
 class Workflow(Element):

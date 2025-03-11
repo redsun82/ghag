@@ -520,3 +520,47 @@ def test_if_expr():
     x = step.run("one")
     step.run("two").if_(x.outcome == "success")
     step.run("three").if_(~x.outputs)
+
+
+@expect(
+    """
+on: {}
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    outputs:
+      one: ${{ steps.x.outputs.one }}
+      two: ${{ steps.x.outputs.two }}
+      three: ${{ steps.x.outputs.three }}
+    steps:
+    - id: x
+      name: x
+"""
+)
+def test_explicit_outputs():
+    @job
+    def j():
+        x = step("x")
+        outputs(one=x.outputs.one, two=x.outputs.two)
+        outputs({"three": x.outputs.three})
+
+
+@expect(
+    """
+on: {}
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    outputs:
+      one: ${{ steps.x.outputs.one }}
+      two: ${{ steps.x.outputs.two }}
+    steps:
+    - id: x
+      name: x
+"""
+)
+def test_implicit_outputs():
+    @job
+    def j():
+        x = step("x")
+        return {"one": x.outputs.one, "two": x.outputs.two}

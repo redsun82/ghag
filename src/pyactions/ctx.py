@@ -281,15 +281,20 @@ def workflow(
     return WorkflowInfo(id, func, inputs)
 
 
+type JobCall = typing.Callable[[], dict[str, Value[str]] | None]
+
+
 def job(
-    func: typing.Callable[[], None] | None = None, *, id=None
-) -> typing.Callable[[typing.Callable[[], None]], None] | None:
+    func: JobCall | None = None, *, id: str | None = None
+) -> typing.Callable[[JobCall], None] | None:
     if func is None:
         return lambda func: job(func, id=id)
     id = id or func.__name__
-    with _build_job(id) as job:
-        job.name = func.__doc__
-        func()
+    with _build_job(id) as j:
+        j.name = func.__doc__
+        out = func()
+        if out:
+            outputs(out)
 
 
 def name(value: str):
@@ -300,8 +305,12 @@ def env(*args, **kwargs):
     _update_field("env", *args, **kwargs)
 
 
-def runs_on(value: Value):
+def runs_on(value: Value[str]):
     _update_field("runs_on", value)
+
+
+def outputs(*args, **kwargs):
+    _update_field("outputs", *args, **kwargs)
 
 
 class _OnUpdater:
