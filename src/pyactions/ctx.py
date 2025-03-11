@@ -281,7 +281,36 @@ def workflow(
     return WorkflowInfo(id, func, inputs)
 
 
-type JobCall = typing.Callable[[], dict[str, Value[str]] | None]
+type JobResult = dict[str, Value[str]] | Expr | tuple[Expr, ...] | None
+
+type JobCall = typing.Callable[[], JobResult]
+
+
+def _job_returns(id: str, result: JobResult):
+    match result:
+        case None:
+            return
+        case dict():
+            _update_field_with_level("outputs", 1, result)
+            return
+        case Expr():
+            result = (result,)
+        case tuple() if all(isinstance(x, Expr) for x in result):
+            pass
+        case _:
+            _ctx.error(
+                f"unsupported return value for job `{id}`, must be `None`, a dictionary, a step `outputs` or a tuple of step `outputs`",
+                level=3,
+            )
+            return
+    for x in result:
+        if x.fields is not None:
+            _update_field_with_level("outputs", 1, {o: getattr(x, o) for o in x.fields})
+        else:
+            _ctx.error(
+                f"job `{id}` returns expression `{x._value}` which has no declared fields. Did you forget to use `returns()` on a step?",
+                level=3,
+            )
 
 
 def job(
@@ -292,9 +321,7 @@ def job(
     id = id or func.__name__
     with _build_job(id) as j:
         j.name = func.__doc__
-        out = func()
-        if out:
-            outputs(out)
+        _job_returns(id, func())
 
 
 def name(value: str):
@@ -468,6 +495,23 @@ class _StepUpdater:
         ret._step.with_ = (ret._step.with_ or {}) | dict(*args, **kwargs)
         return ret
 
+    def returns(self, *args: str, **kwargs: Value[str]) -> typing.Self:
+        ret = self._ensure_run_step()
+        outs = list(args)
+        outs.extend(a for a in kwargs if a not in args)
+        self._step.outputs = self._step.outputs or []
+        self._step.outputs += outs
+        # TODO: support other shells than bash
+        if kwargs:
+            # TODO: handle quoting?
+            out_code = "\n".join(
+                f"echo {k}={v} >> $GITHUB_OUTPUTS" for k, v in kwargs.items()
+            )
+            self._step.run = (
+                f"{self._step.run}\n{out_code}" if self._step.run else out_code
+            )
+        return self
+
     def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
         if not start_from_one and current().step_by_id(prefix) is None:
             return prefix
@@ -498,7 +542,12 @@ class _StepUpdater:
         if self._step is None:
             raise AttributeError("outputs")
         id = self._ensure_id(level=1)
-        return Expr(f"steps.{id}.outputs")
+        return Expr(
+            f"steps.{id}.outputs",
+            fields=(
+                tuple(self._step.outputs) if self._step.outputs is not None else None
+            ),
+        )
 
     @property
     def outcome(self):

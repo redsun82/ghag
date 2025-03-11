@@ -101,8 +101,11 @@ class Step(Element):
     if_: Value[bool]
     continue_on_error: Value[bool]
 
+    outputs: list[str]
+
     def asdict(self) -> typing.Any:
         ret = super().asdict()
+        ret.pop("outputs", None)
         if isinstance(self.if_, Expr):
             ret["if"] = self.if_._value
         ret = CommentedMap(ret)

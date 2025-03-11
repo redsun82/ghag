@@ -467,12 +467,16 @@ jobs:
       run: one
     - id: y-1
       run: two
+    - id: yy
+      run: two prime
     - id: y
       run: three
     - name: use x
       run: ${{ steps.one.outputs }}
     - name: use y
       run: ${{ steps.y-1.outcome }}
+    - name: use yy
+      run: ${{ steps.yy.outputs.a }}
     - name: use z
       run: ${{ steps.y.result }}
     - id: step-1
@@ -491,10 +495,12 @@ jobs:
 def test_id():
     x = step.id("one").run("one")
     y = step.run("two")
+    yy = step.run("two prime")
     z = step.id("y").run("three")
 
     step("use x").run(x.outputs)
     step("use y").run(y.outcome)
+    step("use yy").run(yy.outputs.a)
     step("use z").run(z.result)
 
     code = "\n".join(str(step(f"anon{i}").outcome) for i in range(3))
@@ -549,7 +555,7 @@ def test_explicit_outputs():
     """
 on: {}
 jobs:
-  j:
+  j1:
     runs-on: ubuntu-latest
     outputs:
       one: ${{ steps.x.outputs.one }}
@@ -557,10 +563,34 @@ jobs:
     steps:
     - id: x
       name: x
+      run: |
+        echo one=a >> $GITHUB_OUTPUTS
+        echo two=b >> $GITHUB_OUTPUTS
+  j2:
+    runs-on: ubuntu-latest
+    outputs:
+      one: ${{ steps.x.outputs.one }}
+      two: ${{ steps.x.outputs.two }}
+      three: ${{ steps.y.outputs.three }}
+    steps:
+    - id: x
+      name: x
+      run: |
+        echo one=a >> $GITHUB_OUTPUTS
+        echo two=b >> $GITHUB_OUTPUTS
+    - id: y
+      name: y
+      run: echo three=c >> $GITHUB_OUTPUTS
 """
 )
 def test_implicit_outputs():
     @job
-    def j():
-        x = step("x")
-        return {"one": x.outputs.one, "two": x.outputs.two}
+    def j1():
+        x = step("x").returns(one="a", two="b")
+        return x.outputs
+
+    @job
+    def j2():
+        x = step("x").returns(one="a", two="b")
+        y = step("y").returns(three="c")
+        return x.outputs, y.outputs

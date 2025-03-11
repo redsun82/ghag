@@ -26,10 +26,11 @@ _ops = [
 _ops = {op: i for i, op in enumerate(_ops)}
 
 
-@dataclasses.dataclass
 class Expr(element.Element):
     _value: str
     _op_index: int = 0
+
+    fields: tuple[str, ...]
 
     def asdict(self) -> typing.Any:
         return str(self)
@@ -102,6 +103,8 @@ class Expr(element.Element):
         )
 
     def __getattr__(self, key: str):
+        if self.fields is not None and key not in self.fields:
+            raise AttributeError(key)
         op_index = _ops["."]
         return Expr(f"{self._as_operand(op_index)}.{key}")
 
