@@ -1,3 +1,4 @@
+import contextlib
 import enum
 import dataclasses
 import typing
@@ -104,75 +105,103 @@ class Expr(element.Element):
 
     def __getattr__(self, key: str) -> "Expr | ErrorExpr":
         if self.fields is not None and key not in self.fields:
-            return ErrorExpr(f"`{key}` not available in `{self._value}`")
+            return ErrorExpr(
+                f"`{key}` not available in `{self._value}`", immediate=True
+            )
         op_index = _ops["."]
         return Expr(f"{self._as_operand(op_index)}.{key}")
 
     def __bool__(self) -> "ErrorExpr":
         return ErrorExpr(
-            "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?"
+            "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
+            immediate=True,
         )
 
 
 type Value[T] = Expr | T
 
 
-def on_error(message: str):
-    raise Exception(message)
+def _default_on_error(message: str) -> None:
+    raise ValueError(message)
+
+
+_current_on_error = _default_on_error
+
+
+@contextlib.contextmanager
+def on_error(handler: typing.Callable[[str], typing.Any]):
+    global _current_on_error
+    _current_on_error = handler
+    try:
+        yield
+    finally:
+        _current_on_error = _default_on_error
 
 
 class ErrorExpr(Expr):
-    def __init__(self, e: str | None = None):
-        if e:
-            on_error(e)
+    def __init__(
+        self, e: str | typing.Callable[[], str] | None = None, immediate: bool = False
+    ):
+        self.e = e
+        if immediate:
+            self._emit()
+
+    def _emit(self) -> Self:
+        if self.e:
+            if callable(self.e):
+                self.e = self.e()
+            _current_on_error(self.e)
+            self.e = None
+        return self
 
     def asdict(self) -> typing.Any:
         return str(self)
 
     def __str__(self):
+        self._emit()
         return "<error>"
 
     def __call__(self, *args, **kwargs) -> Self:
-        return self
+        return self._emit()
 
     def __and__(self, other: Any) -> Self:
-        return self
+        return self._emit()
 
     def __rand__(self, other: Any) -> Self:
-        return self
+        return self._emit()
 
     def __or__(self, other: Any) -> Self:
-        return self
+        return self._emit()
 
     def __ror__(self, other: Any) -> Self:
-        return self
+        return self._emit()
 
     def __invert__(self) -> Self:
-        return self
+        return self._emit()
 
     def __eq__(self, other: Any) -> Self:
-        return self
+        return self._emit()
 
     def __ne__(self, other: Any) -> Self:
-        return self
+        return self._emit()
 
     def __le__(self, other) -> Self:
-        return self
+        return self._emit()
 
     def __lt__(self, other) -> Self:
-        return self
+        return self._emit()
 
     def __ge__(self, other) -> Self:
-        return self
+        return self._emit()
 
     def __gt__(self, other) -> Self:
-        return self
+        return self._emit()
 
     def __getitem__(self, key: Any) -> Self:
-        return self
+        return self._emit()
 
     def __getattr__(self, key: Any) -> Self:
-        return self
+        return self._emit()
 
     def __bool__(self) -> Self:
-        return self
+        return self._emit()

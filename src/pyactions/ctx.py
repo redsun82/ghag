@@ -5,18 +5,12 @@ import typing
 from dataclasses import dataclass, fields, asdict, field
 import dataclasses
 import threading
+import pathlib
 
 from .element import Element
-from .expr import Value, Expr, ErrorExpr
+from .expr import Value, Expr, ErrorExpr, on_error
+from . import expr, workflow, element
 from .workflow import *
-from . import expr
-
-
-def _expr_error(e: str):
-    _ctx.error(e, level=4)
-
-
-expr.on_error = _expr_error
 
 
 @dataclass
@@ -30,11 +24,33 @@ class Error:
         return f"{self.filename}:{self.lineno} [{self.workflow_id}] {self.message}"
 
 
+_this_dir = pathlib.Path(__file__).parent
+
+
+def _get_user_frame() -> typing.Any:
+    frame = inspect.currentframe()
+
+    for frame in iter(lambda: frame.f_back, None):
+        filename = frame.f_code.co_filename
+        # get first frame out of this app or contextlib (that wraps some of our functions)
+        if not (
+            pathlib.Path(filename).is_relative_to(_this_dir)
+            or filename == contextlib.__file__
+        ):
+            break
+    return frame
+
+
+def _get_user_frame_info() -> inspect.Traceback:
+    return inspect.getframeinfo(_get_user_frame())
+
+
 @dataclass
 class _Context(threading.local):
     current_workflow: Workflow | None = None
     current_job: Job | None = None
     current_workflow_id: str | None = None
+    current_job_id: str | None = None
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
 
@@ -42,6 +58,7 @@ class _Context(threading.local):
         self.current_workflow = None
         self.current_job = None
         self.current_workflow_id = None
+        self.current_job_id = None
         self.auto_job_reason = None
         self.errors = []
 
@@ -50,14 +67,12 @@ class _Context(threading.local):
             not self.current_workflow
             and not self.current_job
             and not self.current_workflow_id
+            and not self.current_job_id
             and not self.auto_job_reason
         )
 
-    def error(self, message: str, level: int = 2, detached: bool = False) -> Error:
-        frame = inspect.currentframe()
-        for _ in range(level):
-            frame = frame.f_back
-        frame = inspect.getframeinfo(frame)
+    def error(self, message: str, detached: bool = False) -> Error:
+        frame = _get_user_frame_info()
         error = Error(frame.filename, frame.lineno, self.current_workflow_id, message)
         if detached:
             pass
@@ -68,9 +83,9 @@ class _Context(threading.local):
             raise GenerationError([error])
         return error
 
-    def check(self, cond: bool, message: str, level=2):
+    def check(self, cond: bool, message: str):
         if not cond:
-            self.error(message, level)
+            self.error(message)
         return cond
 
 
@@ -82,41 +97,40 @@ def _build_workflow(id: str):
     assert _ctx.empty()
     _ctx.current_workflow = Workflow()
     _ctx.current_workflow_id = id
-    try:
-        yield _ctx.current_workflow
-        if _ctx.errors:
-            raise GenerationError(_ctx.errors)
-    finally:
-        _ctx.reset()
+    with on_error(lambda message: _ctx.error(message)):
+        try:
+            yield _ctx.current_workflow
+            if _ctx.errors:
+                raise GenerationError(_ctx.errors)
+        finally:
+            _ctx.reset()
 
 
 @contextlib.contextmanager
 def _build_job(id: str):
     previous_job = _ctx.current_job
     job = _ctx.current_job = Job()
+    _ctx.current_job_id = id
     try:
         yield job
         if _ctx.auto_job_reason:
             _ctx.error(
                 f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{_ctx.auto_job_reason}`",
-                level=4,
             )
         elif not _ctx.current_workflow or previous_job:
-            _ctx.error(
-                f"job `{id}` not created directly inside a workflow body", level=4
-            )
+            _ctx.error(f"job `{id}` not created directly inside a workflow body")
         elif id in _ctx.current_workflow.jobs:
             _ctx.error(
                 f"job `{id}` already exists in workflow `{current_workflow_id()}`",
-                level=4,
             )
         else:
             _ctx.current_workflow.jobs[id] = job
     finally:
         _ctx.current_job = previous_job
+        _ctx.current_job_id = None
 
 
-def _start_auto_job_reason(field: str, level=0) -> Job:
+def _start_auto_job_reason(field: str) -> Job:
     assert isinstance(current(), Workflow) and not _ctx.auto_job_reason
     job = Job(name=current().name)
     if not current().jobs:
@@ -126,7 +140,6 @@ def _start_auto_job_reason(field: str, level=0) -> Job:
     else:
         _ctx.error(
             f"`{field}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
-            level=level + 5,
         )
     return job
 
@@ -145,18 +158,17 @@ def _try_get_field(field: str, instance: Element | None = None) -> dataclasses.F
 
 
 def _get_field(
-    field: str, instance: Element | None = None, level=0
+    field: str, instance: Element | None = None
 ) -> tuple[Element, dataclasses.Field]:
     instance = instance or current()
     ret = _try_get_field(field, instance)
     if ret is None and isinstance(instance, Workflow):
         ret = _try_get_field(field, Job)
         assert ret, f"field {field} not found in current instance (Workflow or Job)"
-        return _start_auto_job_reason(field, level=level), ret
+        return _start_auto_job_reason(field), ret
     if not ret:
         _ctx.error(
             f"`{field}` is not a {type(instance).__name__.lower()} field",
-            level=level + 4,
         )
         if isinstance(instance, Job) and _ctx.auto_job_reason:
             _ctx.errors[
@@ -165,7 +177,7 @@ def _get_field(
     return instance, ret
 
 
-def _merge[T](field: str, lhs: T | None, rhs: T | None, level=0) -> T | None:
+def _merge[T](field: str, lhs: T | None, rhs: T | None, level: int = 0) -> T | None:
     try:
         match (lhs, rhs):
             case None, _:
@@ -195,29 +207,23 @@ def _merge[T](field: str, lhs: T | None, rhs: T | None, level=0) -> T | None:
                 assert type(lhs) is type(rhs)
                 return rhs
     except AssertionError as e:
-        _ctx.error(
-            f"cannot assign `{type(rhs).__name__}` to `{field}`", level=level + 4
-        )
+        _ctx.error(f"cannot assign `{type(rhs).__name__}` to `{field}`")
 
 
-def _update_field_with_level(field: str, level: int, *args, **kwargs) -> typing.Any:
-    instance, f = _get_field(field, level=level)
+def _update_field(field: str, *args, **kwargs) -> typing.Any:
+    instance, f = _get_field(field)
     if not f:
         return None
     ty = f.metadata.get("original_type", f.type)
     current_value = getattr(instance, field) or ty()
     value = args[0] if len(args) == 1 and not kwargs else ty(*args, **kwargs)
-    value = _merge(field, current_value, value, level=level)
+    value = _merge(field, current_value, value)
     setattr(instance, field, value)
     return value
 
 
-def _update_field(field: str, *args, **kwargs) -> typing.Any:
-    return _update_field_with_level(field, 1, *args, **kwargs)
-
-
 def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
-    value = _update_field_with_level(field, 1)
+    value = _update_field(field)
     if value is None:
         return None
     _, sf = _get_field(subfield, value)
@@ -308,7 +314,7 @@ def _job_returns(id: str, result: JobResult):
         case None:
             return
         case dict():
-            _update_field_with_level("outputs", 1, result)
+            _update_field("outputs", result)
             return
         case Expr():
             result = (result,)
@@ -317,16 +323,14 @@ def _job_returns(id: str, result: JobResult):
         case _:
             _ctx.error(
                 f"unsupported return value for job `{id}`, must be `None`, a dictionary, a step `outputs` or a tuple of step `outputs`",
-                level=3,
             )
             return
     for x in result:
         if x.fields is not None:
-            _update_field_with_level("outputs", 1, {o: getattr(x, o) for o in x.fields})
+            _update_field("outputs", {o: getattr(x, o) for o in x.fields})
         else:
             _ctx.error(
                 f"job `{id}` returns expression `{x._value}` which has no declared fields. Did you forget to use `returns()` on a step?",
-                level=3,
             )
 
 
@@ -334,19 +338,17 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     ret = {}
     for p in inspect.signature(func).parameters:
         if p in _ctx.current_workflow.jobs:
-            _update_field_with_level("needs", 1, [p])
+            _update_field("needs", [p])
             ret[p] = Expr(f"needs.{p}")
         else:
-            _ctx.error(
-                f"job `{id}` needs job `{p}` which is currently undefined", level=3
-            )
+            _ctx.error(f"job `{id}` needs job `{p}` which is currently undefined")
             ret[p] = ErrorExpr()
     return ret
 
 
 def job(
     func: JobCall | None = None, *, id: str | None = None
-) -> typing.Callable[[JobCall], None] | None:
+) -> typing.Callable[[JobCall], ErrorExpr] | ErrorExpr:
     if func is None:
         return lambda func: job(func, id=id)
     id = id or func.__name__
@@ -354,6 +356,9 @@ def job(
         j.name = func.__doc__
         input = _job_needs(id, func)
         _job_returns(id, func(**input))
+        return ErrorExpr(
+            lambda: f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
+        )
 
 
 def name(value: str):
@@ -551,12 +556,10 @@ class _StepUpdater:
             )
         )
 
-    def _ensure_id(self, level: int = 0) -> str:
+    def _ensure_id(self) -> str:
         if self._step and self._step.id is not None:
             return self._step.id
-        frame = inspect.currentframe()
-        for _ in range(level + 1):
-            frame = frame.f_back
+        frame = _get_user_frame()
         id = next((var for var, value in frame.f_locals.items() if value is self), None)
         if id is None:
             id = self._allocate_id("step", start_from_one=True)
@@ -569,7 +572,7 @@ class _StepUpdater:
     def outputs(self):
         if self._step is None:
             raise AttributeError("outputs")
-        id = self._ensure_id(level=1)
+        id = self._ensure_id()
         return Expr(
             f"steps.{id}.outputs",
             fields=(
@@ -581,14 +584,14 @@ class _StepUpdater:
     def outcome(self):
         if self._step is None:
             raise AttributeError("outcome")
-        id = self._ensure_id(level=1)
+        id = self._ensure_id()
         return Expr(f"steps.{id}.outcome")
 
     @property
     def result(self):
         if self._step is None:
             raise AttributeError("result")
-        id = self._ensure_id(level=1)
+        id = self._ensure_id()
         return Expr(f"steps.{id}.result")
 
 

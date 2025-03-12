@@ -22,8 +22,8 @@ def test_ops():
 def test_no_bool():
     a = Expr("a")
 
-    with pytest.raises(GenerationError):
+    with pytest.raises(ValueError):
         a and a
 
-    with pytest.raises(GenerationError):
+    with pytest.raises(ValueError):
         a or a

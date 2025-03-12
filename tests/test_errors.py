@@ -180,4 +180,9 @@ def test_wrong_job_needs(error):
     @job
     def j3(j1, wat, j2):
         pass
+
+    @job
+    def j4():
+        error("job `j3` is not a prerequisite, you must add it to `j4`'s parameters")
+        run(j3.outputs)
     # fmt: on
