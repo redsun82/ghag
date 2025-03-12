@@ -7,7 +7,7 @@ from typing import Self, Any
 
 from . import element
 
-__all__ = ["Expr"]
+__all__ = ["Expr", "github"]
 
 
 _ops = [
@@ -205,3 +205,88 @@ class ErrorExpr(Expr):
 
     def __bool__(self) -> Self:
         return self._emit()
+
+
+class Context(Expr):
+    @classmethod
+    def clear(cls):
+        for f in getattr(cls, "_fields", ()):
+            f.clear()
+
+    @classmethod
+    def activate(cls, field: str):
+        match getattr(cls, field, None):
+            case None:
+                raise AttributeError(f"{cls.__name__} has no field `{field}`")
+            case PotentialField() as f:
+                f.activate()
+            case _:
+                raise AttributeError(
+                    f"{cls.__name__} field `{field}` is not a PotentialField"
+                )
+
+
+class Field[T]:
+    def __init__(self, cls: type[T] = Expr):
+        self.cls = cls
+
+    def __set_name__(self, owner: type, name: str):
+        if not hasattr(owner, "_fields"):
+            owner._fields = []
+        owner._fields.append(self)
+        self.name = name
+
+    def __get__(self, instance: Expr, owner: type) -> T:
+        if instance is None:
+            return self
+        return self.cls(f"{instance._value}.{self.name}")
+
+    def clear(self):
+        getattr(self.cls, "clear", lambda: None)()
+
+
+class PotentialField[T](Field[T]):
+    active = False
+
+    def __get__(self, instance: Expr, owner: type[Context]) -> T:
+        if instance is None:
+            return self
+        if not self.active:
+            return ErrorExpr(
+                f"`{self.name}` not available in `{instance._value}`", immediate=True
+            )
+        return super().__get__(instance, owner)
+
+    def activate(self):
+        self.active = True
+
+    def clear(self):
+        super().clear()
+        del self.active
+
+
+class GithubContext(Context):
+    sha = Field()
+    ref = Field()
+    workflow = Field()
+    action = Field()
+    actor = Field()
+    job = Field()
+    run_id = Field()
+    run_number = Field()
+    event_name = Field()
+    event_path = Field()
+    action_path = Field()
+    workspace = Field()
+
+    class Event(Context):
+        action = Field()
+        number = Field()
+        issue = Field()
+        pull_request = PotentialField()
+        changes = Field()
+
+    event = Field(Event)
+
+
+github = GithubContext("github")
