@@ -7,7 +7,7 @@ from typing import Self, Any
 
 from . import element
 
-__all__ = ["Expr", "github"]
+__all__ = ["Expr", "github", "steps"]
 
 
 _ops = [
@@ -31,7 +31,10 @@ class Expr(element.Element):
     _value: str
     _op_index: int = 0
 
-    fields: tuple[str, ...]
+    fields: set[str]
+
+    def clear(self):
+        pass
 
     def asdict(self) -> typing.Any:
         return str(self)
@@ -208,13 +211,15 @@ class ErrorExpr(Expr):
 
 
 class Context(Expr):
-    @classmethod
-    def clear(cls):
-        for f in getattr(cls, "_fields", ()):
-            f.clear()
+    def __post_init__(self):
+        self.fields = set()
 
-    @classmethod
-    def activate(cls, field: str):
+    def clear(self):
+        for f in self.fields:
+            getattr(self, f).clear()
+
+    def activate(self, field: str):
+        cls = type(self)
         match getattr(cls, field, None):
             case None:
                 raise AttributeError(f"{cls.__name__} has no field `{field}`")
@@ -225,33 +230,72 @@ class Context(Expr):
                     f"{cls.__name__} field `{field}` is not a PotentialField"
                 )
 
+    @property
+    def ALL(self) -> Expr:
+        return Expr(f"{self._value}.*")
+
+
+class MapContext[T](Context):
+    def __init__(self, value: str, fieldcls: type[T] = Expr, *args: Any, **kwargs: Any):
+        super().__init__(value, **kwargs)
+        self._fieldcls = fieldcls
+        self._args = args
+
+    def clear(self):
+        super().clear()
+        for f in self.fields:
+            delattr(self, f)
+        self.fields = set()
+
+    def __getattr__(self, item) -> T:
+        return super().__getattr__(item)
+
+    def activate(self, field: str):
+        self.fields.add(field)
+        setattr(
+            self,
+            field,
+            self._fieldcls(f"{self._value}.{field}", *self._args, fields=set()),
+        )
+
+    @property
+    def ALL(self) -> T:
+        return self._fieldcls(f"{self._value}.*", *self._args, fields=set())
+
 
 class Field[T]:
-    def __init__(self, cls: type[T] = Expr):
+    def __init__(self, cls: type[T] = Expr, *args: Any):
         self.cls = cls
+        self.args = args
 
-    def __set_name__(self, owner: type, name: str):
-        if not hasattr(owner, "_fields"):
-            owner._fields = []
-        owner._fields.append(self)
+    def __set_name__(self, owner: type[Context], name: str):
         self.name = name
+
+    def __repr__(self):
+        return f"{self.name}@{self.__class__.__name__}({",".join((self.cls.__name__,) + tuple(repr(a) for a in self.args))})"
 
     def __get__(self, instance: Expr, owner: type) -> T:
         if instance is None:
             return self
-        return self.cls(f"{instance._value}.{self.name}")
+        instance.fields.add(self.name)
+        priv_name = f"_f_{self.name}"
+        if priv_name not in instance.__dict__:
+            setattr(
+                instance,
+                priv_name,
+                self.cls(f"{instance._value}.{self.name}", *self.args, fields=set()),
+            )
+        return getattr(instance, priv_name)
 
     def clear(self):
-        getattr(self.cls, "clear", lambda: None)()
+        self.instance = None
 
 
 class PotentialField[T](Field[T]):
     active = False
 
     def __get__(self, instance: Expr, owner: type[Context]) -> T:
-        if instance is None:
-            return self
-        if not self.active:
+        if instance is not None and not self.active:
             return ErrorExpr(
                 f"`{self.name}` not available in `{instance._value}`", immediate=True
             )
@@ -262,7 +306,7 @@ class PotentialField[T](Field[T]):
 
     def clear(self):
         super().clear()
-        del self.active
+        self.active = False
 
 
 class GithubContext(Context):
@@ -289,4 +333,11 @@ class GithubContext(Context):
     event = Field(Event)
 
 
+class StepContext(Context):
+    outputs = Field(MapContext)
+    outcome = Field()
+    result = Field()
+
+
 github = GithubContext("github")
+steps = MapContext("steps", StepContext)
