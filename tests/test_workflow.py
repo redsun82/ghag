@@ -8,9 +8,9 @@ from src.pyactions.ctx import *
     """
 name: My workflow
 on:
-  workflow_dispatch: {}
   pull_request:
     branches: [main]
+  workflow_dispatch: {}
 jobs: {}
 """
 )
@@ -31,6 +31,28 @@ jobs: {}
 def test_name_from_docstring():
     """My workflow"""
     on.workflow_dispatch()
+
+
+@expect(
+    """
+on:
+  pull_request:
+    types: [opened, reopened]
+    branches: [main, dev/*]
+    ignore-branches: [dev/ignore]
+    paths: [foo/**]
+    ignore-paths: [foo/bar/**]
+jobs: {}
+"""
+)
+def test_pull_request():
+    on.pull_request(
+        types=["opened", "reopened"],
+        branches=["main", "dev/*"],
+        ignore_branches=["dev/ignore"],
+        paths=["foo/**"],
+        ignore_paths=["foo/bar/**"],
+    )
 
 
 @expect(

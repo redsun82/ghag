@@ -74,9 +74,89 @@ class Secret(Element):
     required: bool = False
 
 
-class PullRequest(Element):
+class Trigger(Element):
+    types: list[str]
+
+
+class TypedTrigger(type):
+    def __new__(cls, *types: str):
+        return type(
+            "TypedTrigger",
+            (Trigger,),
+            {
+                "allowed_types": tuple(sorted(types)),
+            },
+        )
+
+
+class ChangeTrigger(Element):
     branches: list[str]
+    ignore_branches: list[str]
     paths: list[str]
+    ignore_paths: list[str]
+
+
+class PullRequest(
+    ChangeTrigger,
+    TypedTrigger(
+        "assigned",
+        "unassigned",
+        "labeled",
+        "unlabeled",
+        "opened",
+        "edited",
+        "closed",
+        "reopened",
+        "synchronize",
+        "converted_to_draft",
+        "locked",
+        "unlocked",
+        "enqueued",
+        "dequeued",
+        "milestoned",
+        "demilestoned",
+        "ready_for_review",
+        "review_requested",
+        "review_request_removed",
+        "auto_merge_enabled",
+        "auto_merge_disabled",
+    ),
+):
+    pass
+
+
+class PullRequestTarget(
+    ChangeTrigger,
+    TypedTrigger(
+        "assigned",
+        "unassigned",
+        "labeled",
+        "unlabeled",
+        "opened",
+        "edited",
+        "closed",
+        "reopened",
+        "synchronize",
+        "converted_to_draft",
+        "ready_for_review",
+        "locked",
+        "unlocked",
+        "review_requested",
+        "review_request_removed",
+        "auto_merge_enabled",
+        "auto_merge_disabled",
+    ),
+):
+    pass
+
+
+class Push(ChangeTrigger):
+    tags: list[str]
+    ignore_tags: list[str]
+
+
+class Schedule(Element):
+    cron: str
 
 
 class WorkflowDispatch(Element):
@@ -92,9 +172,77 @@ class WorkflowCall(Element):
 class On(Element):
     _preserve_underscores = True
 
+    branch_protection_rule: TypedTrigger("created", "edited", "deleted")
+    check_run: TypedTrigger("created", "completed", "requested_action", "rerequested")
+    check_suite: TypedTrigger("completed")
+    create: Element
+    delete: Element
+    deployment: Element
+    deployment_status: Element
+    discussion: TypedTrigger(
+        "created",
+        "edited",
+        "deleted",
+        "transferred",
+        "pinned",
+        "unpinned",
+        "labeled",
+        "unlabeled",
+        "locked",
+        "unlocked",
+        "category_changed",
+        "answered",
+        "unanswered",
+    )
+    discussion_comment: TypedTrigger("created", "edited", "deleted")
+    fork: Element
+    gollum: Element
+    issue_comment: TypedTrigger("created", "edited", "deleted")
+    issues: TypedTrigger(
+        "opened",
+        "edited",
+        "deleted",
+        "transferred",
+        "pinned",
+        "unpinned",
+        "closed",
+        "reopened",
+        "assigned",
+        "unassigned",
+        "labeled",
+        "unlabeled",
+        "locked",
+        "unlocked",
+        "milestoned",
+        "demilestoned",
+    )
+    label: TypedTrigger("created", "edited", "deleted")
+    merge_group: TypedTrigger("checks_requested")
+    milestone: TypedTrigger("created", "closed", "opened", "edited", "deleted")
+    page_build: Element
+    public: Element
+    pull_request: PullRequest
+    pull_request_review: TypedTrigger("submitted", "edited", "dismissed")
+    pull_request_review_comment: TypedTrigger("created", "edited", "deleted")
+    pull_request_target: PullRequestTarget
+    push: Push
+    registry_package: TypedTrigger("published", "updated")
+    release: TypedTrigger(
+        "published",
+        "unpublished",
+        "created",
+        "edited",
+        "deleted",
+        "prereleased",
+        "released",
+    )
+    repository_dispatch: Trigger
+    schedule: Schedule
+    status: Element
+    watch: TypedTrigger("started")
     workflow_call: WorkflowCall
     workflow_dispatch: WorkflowDispatch
-    pull_request: PullRequest
+    workflow_run: TypedTrigger("completed", "in_progress", "requested")
 
 
 class Step(Element):
