@@ -169,9 +169,6 @@ class Job(Element):
     env: dict[str, Value[str]]
     steps: list[Step]
 
-    def step_by_id(self, id: str) -> Step | None:
-        return next((s for s in self.steps if s.id == id), None)
-
     def asdict(self) -> typing.Any:
         ret = super().asdict()
         outputs = ret.get("outputs")

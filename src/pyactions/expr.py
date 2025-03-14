@@ -1,13 +1,18 @@
 import contextlib
-import enum
-import dataclasses
 import typing
-from importlib.resources import open_binary
 from typing import Self, Any
 
 from . import element
 
-__all__ = ["Expr", "github", "steps"]
+__all__ = [
+    "Expr",
+    "Context",
+    "MapContext",
+    "Field",
+    "PotentialField",
+    "ErrorExpr",
+    "on_error",
+]
 
 
 _ops = [
@@ -32,6 +37,7 @@ class Expr(element.Element):
     _op_index: int = 0
 
     fields: set[str]
+    _no_field_error: str
 
     def clear(self):
         pass
@@ -109,7 +115,8 @@ class Expr(element.Element):
     def __getattr__(self, key: str) -> "Expr | ErrorExpr":
         if self.fields is not None and key not in self.fields:
             return ErrorExpr(
-                f"`{key}` not available in `{self._value}`", immediate=True
+                f"`{key}` not available in `{self._value}`{self._no_field_error or ''}",
+                immediate=True,
             )
         op_index = _ops["."]
         return Expr(f"{self._as_operand(op_index)}.{key}")
@@ -217,6 +224,9 @@ class Context(Expr):
     def clear(self):
         for f in self.fields:
             getattr(self, f).clear()
+            descriptor = getattr(type(self), f, None)
+            if descriptor:
+                descriptor.clear(self)
 
     def activate(self, field: str):
         cls = type(self)
@@ -224,7 +234,7 @@ class Context(Expr):
             case None:
                 raise AttributeError(f"{cls.__name__} has no field `{field}`")
             case PotentialField() as f:
-                f.activate()
+                f.activate(self)
             case _:
                 raise AttributeError(
                     f"{cls.__name__} field `{field}` is not a PotentialField"
@@ -258,18 +268,26 @@ class MapContext[T](Context):
             self._fieldcls(f"{self._value}.{field}", *self._args, fields=set()),
         )
 
+    def has(self, field: str) -> bool:
+        return field in self.fields
+
     @property
     def ALL(self) -> T:
         return self._fieldcls(f"{self._value}.*", *self._args, fields=set())
 
 
 class Field[T]:
-    def __init__(self, cls: type[T] = Expr, *args: Any):
+    def __init__(self, cls: type[T] = Expr, *args: Any, **kwargs: Any):
         self.cls = cls
         self.args = args
+        self.kwargs = kwargs
 
     def __set_name__(self, owner: type[Context], name: str):
         self.name = name
+
+    @property
+    def priv_name(self) -> str:
+        return f"_f_{self.name}"
 
     def __repr__(self):
         return f"{self.name}@{self.__class__.__name__}({",".join((self.cls.__name__,) + tuple(repr(a) for a in self.args))})"
@@ -278,66 +296,30 @@ class Field[T]:
         if instance is None:
             return self
         instance.fields.add(self.name)
-        priv_name = f"_f_{self.name}"
-        if priv_name not in instance.__dict__:
+        self.activate(instance)
+        return getattr(instance, self.priv_name)
+
+    def activate(self, instance: Expr):
+        if self.priv_name not in instance.__dict__:
             setattr(
                 instance,
-                priv_name,
-                self.cls(f"{instance._value}.{self.name}", *self.args, fields=set()),
+                self.priv_name,
+                self.cls(
+                    f"{instance._value}.{self.name}",
+                    *self.args,
+                    fields=set(),
+                    **self.kwargs,
+                ),
             )
-        return getattr(instance, priv_name)
 
-    def clear(self):
-        self.instance = None
+    def clear(self, instance: Expr):
+        instance.__dict__.pop(self.priv_name, None)
 
 
 class PotentialField[T](Field[T]):
-    active = False
-
     def __get__(self, instance: Expr, owner: type[Context]) -> T:
-        if instance is not None and not self.active:
+        if instance is not None and self.priv_name not in instance.__dict__:
             return ErrorExpr(
                 f"`{self.name}` not available in `{instance._value}`", immediate=True
             )
         return super().__get__(instance, owner)
-
-    def activate(self):
-        self.active = True
-
-    def clear(self):
-        super().clear()
-        self.active = False
-
-
-class GithubContext(Context):
-    sha = Field()
-    ref = Field()
-    workflow = Field()
-    action = Field()
-    actor = Field()
-    job = Field()
-    run_id = Field()
-    run_number = Field()
-    event_name = Field()
-    event_path = Field()
-    action_path = Field()
-    workspace = Field()
-
-    class Event(Context):
-        action = Field()
-        number = Field()
-        issue = Field()
-        pull_request = PotentialField()
-        changes = Field()
-
-    event = Field(Event)
-
-
-class StepContext(Context):
-    outputs = Field(MapContext)
-    outcome = Field()
-    result = Field()
-
-
-github = GithubContext("github")
-steps = MapContext("steps", StepContext)

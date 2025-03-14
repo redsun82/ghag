@@ -127,6 +127,15 @@ def test_wrong_annotation():
 
 
 @expect_errors
+def test_unexpected_step_outputs(error):
+    x = step("x")
+    error(
+        "`foo` not available in `steps.x.outputs`, use `returns()` on the corresponding step to declare them"
+    )
+    step("y").run(x.outputs.foo)
+
+
+@expect_errors
 def test_wrong_outputs(error):
     # fmt: off
     error("job `j1` returns expression `steps.x.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
@@ -159,7 +168,9 @@ def test_wrong_outputs(error):
 @expect_errors
 def test_undeclared_step_output(error):
     x = step("step1").returns("foo")
-    error("`bar` not available in `steps.x.outputs`")
+    error(
+        "`bar` not available in `steps.x.outputs`, use `returns()` on the corresponding step to declare them"
+    )
     step("step2").run(x.outputs.bar)
 
 

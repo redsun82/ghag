@@ -495,7 +495,7 @@ jobs:
 def test_id():
     x = step.id("one").run("one")
     y = step.run("two")
-    yy = step.run("two prime")
+    yy = step.run("two prime").returns("a")
     z = step.id("y").run("three")
 
     step("use x").run(x.outputs)

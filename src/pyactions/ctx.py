@@ -8,7 +8,7 @@ import threading
 import pathlib
 
 from .element import Element
-from .expr import Value, Expr, ErrorExpr, on_error
+from .expr import Value, Expr, ErrorExpr, on_error, Context, Field, MapContext
 from . import expr, workflow, element
 from .workflow import *
 
@@ -104,6 +104,7 @@ def _build_workflow(id: str):
                 raise GenerationError(_ctx.errors)
         finally:
             _ctx.reset()
+            steps.clear()
 
 
 @contextlib.contextmanager
@@ -128,6 +129,7 @@ def _build_job(id: str):
     finally:
         _ctx.current_job = previous_job
         _ctx.current_job_id = None
+        steps.clear()
 
 
 def _start_auto_job_reason(field: str) -> Job:
@@ -326,8 +328,8 @@ def _job_returns(id: str, result: JobResult):
             )
             return
     for x in result:
-        if x.fields is not None:
-            _update_field("outputs", {o: getattr(x, o) for o in x.fields})
+        if x.fields:
+            _update_field("outputs", {o: getattr(x, o) for o in sorted(x.fields)})
         else:
             _ctx.error(
                 f"job `{id}` returns expression `{x._value}` which has no declared fields. Did you forget to use `returns()` on a step?",
@@ -444,6 +446,24 @@ strategy = _StrategyUpdater()
 matrix = strategy.matrix
 
 
+class _StepContext(Context):
+    outputs = Field(
+        MapContext,
+        _no_field_error=", use `returns()` on the corresponding step to declare them",
+    )
+    result = Field()
+    outcome = Field()
+
+
+class _StepsContext(MapContext, threading.local):
+    def __init__(self):
+        MapContext.__init__(self, "steps", _StepContext)
+        threading.local.__init__(self)
+
+
+steps = _StepsContext()
+
+
 @dataclass
 class _StepUpdater:
     steps: list[Step] | None = None
@@ -485,10 +505,15 @@ class _StepUpdater:
 
     def id(self, id: str) -> typing.Self:
         ret = self._ensure_step()
-        if current().step_by_id(id) is not None:
+        if ret._step.id:
+            _ctx.error(f"id was already specified for this step as `{ret._step.id}`")
+        elif steps.has(id):
             _ctx.error(f"id `{id}` was already specified for a step")
         else:
             ret._step.id = id
+            steps.activate(id)
+            for o in ret._step.outputs or ():
+                getattr(steps, id).outputs.activate(o)
         return ret
 
     def name(self, name: Value[str]) -> typing.Self:
@@ -532,27 +557,30 @@ class _StepUpdater:
         ret = self._ensure_run_step()
         outs = list(args)
         outs.extend(a for a in kwargs if a not in args)
-        self._step.outputs = self._step.outputs or []
-        self._step.outputs += outs
+        ret._step.outputs = ret._step.outputs or []
+        ret._step.outputs += outs
+        if ret._step.id:
+            for o in outs:
+                getattr(steps, ret._step.id).outputs.activate(o)
         # TODO: support other shells than bash
         if kwargs:
             # TODO: handle quoting?
             out_code = "\n".join(
                 f"echo {k}={v} >> $GITHUB_OUTPUTS" for k, v in kwargs.items()
             )
-            self._step.run = (
-                f"{self._step.run}\n{out_code}" if self._step.run else out_code
+            ret._step.run = (
+                f"{ret._step.run}\n{out_code}" if ret._step.run else out_code
             )
         return ret
 
     def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
-        if not start_from_one and current().step_by_id(prefix) is None:
+        if not start_from_one and not steps.has(prefix):
             return prefix
         return next(
             (
                 id
                 for id in (f"{prefix}-{i}" for i in itertools.count(1))
-                if current().step_by_id(id) is None
+                if not steps.has(id)
             )
         )
 
@@ -563,7 +591,7 @@ class _StepUpdater:
         id = next((var for var, value in frame.f_locals.items() if value is self), None)
         if id is None:
             id = self._allocate_id("step", start_from_one=True)
-        elif current().step_by_id(id) is not None:
+        elif steps.has(id):
             id = self._allocate_id(id)
         self.id(id)
         return id
@@ -573,26 +601,21 @@ class _StepUpdater:
         if self._step is None:
             raise AttributeError("outputs")
         id = self._ensure_id()
-        return Expr(
-            f"steps.{id}.outputs",
-            fields=(
-                tuple(self._step.outputs) if self._step.outputs is not None else None
-            ),
-        )
+        return getattr(steps, id).outputs
 
     @property
     def outcome(self):
         if self._step is None:
             raise AttributeError("outcome")
         id = self._ensure_id()
-        return Expr(f"steps.{id}.outcome")
+        return getattr(steps, id).outcome
 
     @property
     def result(self):
         if self._step is None:
             raise AttributeError("result")
         id = self._ensure_id()
-        return Expr(f"steps.{id}.result")
+        return getattr(steps, id).result
 
 
 step = _StepUpdater()
