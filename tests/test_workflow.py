@@ -8,8 +8,8 @@ from src.pyactions.ctx import *
     """
 name: My workflow
 on:
-  workflow-dispatch: {}
-  pull-request:
+  workflow_dispatch: {}
+  pull_request:
     branches: [main]
 jobs: {}
 """
@@ -24,7 +24,7 @@ def test_basic():
     """
 name: My workflow
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs: {}
 """
 )
@@ -36,7 +36,7 @@ def test_name_from_docstring():
 @expect(
     """
 on:
-  pull-request:
+  pull_request:
     branches: [main]
     paths: [foo/**]
 jobs: {}
@@ -50,7 +50,7 @@ def test_merge():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   my_job:
     name: My job
@@ -70,7 +70,7 @@ def test_job():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   my_job:
     name: My job
@@ -90,7 +90,7 @@ def test_job_name_from_docstring():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   job1:
     name: First job
@@ -119,7 +119,7 @@ def test_jobs():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   my_job: {runs-on: windows-latest}
 """
@@ -218,7 +218,7 @@ def test_matrix_shortcut():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   test_strategy_in_workflow:
     runs-on: ubuntu-latest
@@ -235,7 +235,7 @@ def test_strategy_in_workflow():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 env: {WORKFLOW_ENV: 1}
 jobs:
   test_runs_on_in_workflow:
@@ -254,7 +254,7 @@ def test_runs_on_in_workflow():
     """
 name: Foo bar
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   test_runs_on_in_worfklow_with_name: {name: Foo bar, runs-on: macos-latest}
 """
@@ -268,7 +268,7 @@ def test_runs_on_in_worfklow_with_name():
 @expect(
     """
 on:
-  workflow-dispatch: {}
+  workflow_dispatch: {}
 jobs:
   my_job:
     runs-on: ubuntu-latest
@@ -310,7 +310,7 @@ def test_steps():
 @expect(
     """
 on:
-  workflow-dispatch:
+  workflow_dispatch:
     inputs:
       foo: {description: a foo, required: true, type: string}
       bar: {description: a bar, required: false, type: boolean}
@@ -336,7 +336,7 @@ def test_workflow_dispatch_inputs():
 @expect(
     """
 on:
-  workflow-call:
+  workflow_call:
     inputs:
       foo: {required: true, type: string}
       bar: {required: false, type: boolean}
@@ -364,11 +364,11 @@ def test_workflow_call():
 @expect(
     """
 on:
-  workflow-call:
+  workflow_call:
     inputs:
       foo: {description: a foo, required: true, type: string}
       bar: {required: false, default: 42, type: number}
-  workflow-dispatch:
+  workflow_dispatch:
     inputs:
       foo: {description: a foo, required: true, type: string}
       bar: {required: false, default: 42, type: number}
@@ -383,7 +383,7 @@ def test_inputs():
 @expect(
     """
 on:
-  workflow-call:
+  workflow_call:
     inputs:
       foo: {description: a foo, required: false, type: string}
 jobs: {}
@@ -397,10 +397,10 @@ def test_trigger_removal():
 @expect(
     """
 on:
-  workflow-call:
+  workflow_call:
     inputs:
       foo: {description: a foo, required: false, type: string}
-  workflow-dispatch:
+  workflow_dispatch:
     inputs:
       foo: {description: a foo, required: false, type: string}
 jobs:
@@ -418,7 +418,7 @@ def test_use_input_as_expr():
 @expect(
     """
 on:
-  workflow-call:
+  workflow_call:
     inputs:
       foo: {description: a foo, required: true, type: number}
       bar:
@@ -430,7 +430,7 @@ on:
         type: choice
         options: [one, two]
       baz: {required: false, default: 42, type: number}
-  workflow-dispatch:
+  workflow_dispatch:
     inputs:
       foo: {description: a foo, required: true, type: number}
       bar:

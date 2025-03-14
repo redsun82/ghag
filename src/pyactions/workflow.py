@@ -90,6 +90,8 @@ class WorkflowCall(Element):
 
 
 class On(Element):
+    _preserve_underscores = True
+
     workflow_call: WorkflowCall
     workflow_dispatch: WorkflowDispatch
     pull_request: PullRequest

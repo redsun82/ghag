@@ -5,10 +5,18 @@ import typing
 @dataclasses.dataclass
 class Element:
     _: dataclasses.KW_ONLY
+    _preserve_underscores: typing.ClassVar[bool] = False
+
+    @classmethod
+    def _key(cls, key: str) -> str:
+        key = key.rstrip("_")
+        if not cls._preserve_underscores:
+            key = key.replace("_", "-")
+        return key
 
     def asdict(self) -> typing.Any:
         return {
-            k.rstrip("_").replace("_", "-"): asobj(v)
+            self._key(k): asobj(v)
             for k, v in (
                 (f.name, getattr(self, f.name)) for f in dataclasses.fields(self)
             )
