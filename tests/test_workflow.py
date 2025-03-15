@@ -228,12 +228,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        include: {z: 42}
         x: [1, 2, 3]
+        y: [a, b]
+    steps:
+    - run: ${{ matrix.x }}, ${{ matrix.y }}, ${{ matrix.z }}
 """
 )
 def test_strategy_in_workflow():
     on.workflow_dispatch()
-    strategy.matrix(x=[1, 2, 3])
+    strategy.matrix(x=[1, 2, 3], y=["a", "b"], include={"z": 42})
+    run(f"{matrix.x}, {matrix.y}, {matrix.z}")
 
 
 @expect(

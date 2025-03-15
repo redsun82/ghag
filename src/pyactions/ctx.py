@@ -68,6 +68,11 @@ class _Context(threading.local):
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
     steps: _StepsContext = field(default_factory=_StepsContext)
+    matrix: MapContext = field(
+        default_factory=lambda: MapContext(
+            "matrix", _no_field_error=", it must be included with `strategy.matrix()`"
+        )
+    )
 
     def reset(self):
         self.reset_job()
@@ -80,6 +85,7 @@ class _Context(threading.local):
         self.current_job = job
         self.current_job_id = job_id
         self.steps.clear()
+        self.matrix.clear()
 
     def empty(self) -> bool:
         return (
@@ -293,7 +299,17 @@ class _JobUpdaters(_Updaters):
     runs_on = _Updater(str)
 
     class StrategyUpdater(_Updater):
-        matrix = _Updater(Matrix)
+        class MatrixUpdater(_Updater):
+            def _apply(self, *args, **kwargs):
+                ret = super()._apply(*args, **kwargs)
+                if ret is not None:
+                    for x in ret.include or ():
+                        for k in x:
+                            matrix.activate(k)
+                    for k in ret.values or ():
+                        matrix.activate(k)
+
+        matrix = MatrixUpdater(Matrix)
         fail_fast = _Updater(lambda v=True: v)
         max_parallel = _Updater(int)
 
@@ -491,6 +507,7 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 strategy = _JobUpdaters.strategy
 
 steps = _ctx.steps
+matrix = _ctx.matrix
 
 
 @dataclass

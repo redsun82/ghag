@@ -195,3 +195,22 @@ def test_wrong_job_needs(error):
         error("job `j3` is not a prerequisite, you must add it to `j4`'s parameters")
         run(j3.outputs)
     # fmt: on
+
+
+@expect_errors
+def test_unavailable_matrix_values(error):
+    @job
+    def j1():
+        strategy.matrix(a=[0])
+        error(
+            "`x` not available in `matrix`, it must be included with `strategy.matrix()`"
+        )
+        step(matrix.x)
+
+    @job
+    def j2():
+        strategy.matrix(b=["x"])
+        error(
+            "`a` not available in `matrix`, it must be included with `strategy.matrix()`"
+        )
+        step(matrix.a)
