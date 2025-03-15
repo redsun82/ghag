@@ -48,7 +48,7 @@ def _get_user_frame_info() -> inspect.Traceback:
 class _StepContext(Context):
     outputs = Field(
         MapContext,
-        _no_field_error=", use `returns()` on the corresponding step to declare them",
+        _field_access_error=", use `returns()` on the corresponding step to declare them",
     )
     result = Field()
     outcome = Field()
@@ -70,7 +70,8 @@ class _Context(threading.local):
     steps: _StepsContext = field(default_factory=_StepsContext)
     matrix: MapContext = field(
         default_factory=lambda: MapContext(
-            "matrix", _no_field_error=", it must be included with `strategy.matrix()`"
+            "matrix",
+            _field_access_error=", it must be included with `strategy.matrix()`",
         )
     )
 

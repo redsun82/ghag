@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import typing
 from typing import Self, Any
 
@@ -13,7 +14,6 @@ __all__ = [
     "ErrorExpr",
     "on_error",
 ]
-
 
 _ops = [
     None,
@@ -34,10 +34,11 @@ _ops = {op: i for i, op in enumerate(_ops)}
 
 class Expr(element.Element):
     _value: str
+    _ = dataclasses.KW_ONLY
     _op_index: int = 0
 
-    _fields: set[str]
-    _no_field_error: str
+    _field_access_error: str | None = ""
+    _error: str
 
     def _clear(self):
         pass
@@ -69,7 +70,9 @@ class Expr(element.Element):
     def _binop(cls, lhs: Any, rhs: Any, op: str) -> Self:
         op_index = _ops[op]
         return Expr(
-            f"{cls._syntax(lhs, op_index)}{op}{cls._syntax(rhs, op_index)}", op_index
+            f"{cls._syntax(lhs, op_index)}{op}{cls._syntax(rhs, op_index)}",
+            _op_index=op_index,
+            _field_access_error=None,  # for the moment let's allow attributes on binops
         )
 
     def __and__(self, other: Any) -> Self:
@@ -86,7 +89,7 @@ class Expr(element.Element):
 
     def __invert__(self) -> Self:
         op_index = _ops["!"]
-        return Expr(f"!{self._as_operand(op_index)}", op_index)
+        return Expr(f"!{self._as_operand(op_index)}", _op_index=op_index)
 
     def __eq__(self, other: Any) -> Self:
         return self._binop(self, other, " == ")
@@ -109,17 +112,19 @@ class Expr(element.Element):
     def __getitem__(self, key: Any) -> Self:
         op_index = _ops["[]"]
         return Expr(
-            f"{self._as_operand(op_index)}[{self._syntax(key, op_index)}]", op_index
+            f"{self._as_operand(op_index)}[{self._syntax(key, op_index)}]",
+            _op_index=op_index,
+            _field_access_error=None,
         )
 
     def __getattr__(self, key: str) -> "Expr | ErrorExpr":
-        if self._fields is not None and key not in self._fields:
+        if self._field_access_error is not None:
             return ErrorExpr(
-                f"`{key}` not available in `{self._value}`{self._no_field_error or ''}",
+                f"`{key}` not available in `{self._value}`{self._field_access_error}",
                 immediate=True,
             )
         op_index = _ops["."]
-        return Expr(f"{self._as_operand(op_index)}.{key}")
+        return Expr(f"{self._as_operand(op_index)}.{key}", _op_index=_ops["."])
 
     def __bool__(self) -> bool:
         _current_on_error(
@@ -218,8 +223,7 @@ class ErrorExpr(Expr):
 
 
 class Context(Expr):
-    def __post_init__(self):
-        self._fields = set()
+    _fields: set[str] = dataclasses.field(default_factory=set)
 
     def _clear(self):
         for f in self._fields:
@@ -270,7 +274,7 @@ class MapContext[T](Context):
         setattr(
             self,
             field,
-            self._fieldcls(f"{self._value}.{field}", *self._args, _fields=set()),
+            self._fieldcls(f"{self._value}.{field}", *self._args),
         )
 
     def _activate_all(self):
@@ -297,9 +301,6 @@ class Field[T]:
     def priv_name(self) -> str:
         return f"_f_{self.name}"
 
-    def __repr__(self):
-        return f"{self.name}@{self.__class__.__name__}({",".join((self.cls.__name__,) + tuple(repr(a) for a in self.args))})"
-
     def __get__(self, instance: Expr, owner: type) -> T:
         if instance is None:
             return self
@@ -315,7 +316,6 @@ class Field[T]:
                 self.cls(
                     f"{instance._value}.{self.name}",
                     *self.args,
-                    _fields=set(),
                     **self.kwargs,
                 ),
             )
@@ -328,7 +328,8 @@ class PotentialField[T](Field[T]):
     def __get__(self, instance: Expr, owner: type[Context]) -> T:
         if instance is not None and self.priv_name not in instance.__dict__:
             return ErrorExpr(
-                f"`{self.name}` not available in `{instance._value}`", immediate=True
+                f"`{self.name}` not available in `{instance._value}`{instance._field_access_error}",
+                immediate=True,
             )
         return super().__get__(instance, owner)
 
