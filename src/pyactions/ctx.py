@@ -8,7 +8,7 @@ import threading
 import pathlib
 
 from .element import Element
-from .expr import Value, Expr, ErrorExpr, on_error, Context, Field, MapContext
+from .expr import Value, Expr, on_error, Context, Field, MapContext
 from . import expr, workflow, element
 from .workflow import *
 
@@ -397,7 +397,7 @@ class WorkflowInfo:
                 key: (
                     input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
                     if i is not None
-                    else ErrorExpr()
+                    else Expr(_error="")
                 )
                 for key, i in self.inputs.items()
             }
@@ -477,14 +477,15 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
             _JobUpdaters.needs([p])
             ret[p] = Expr(f"needs.{p}")
         else:
-            _ctx.error(f"job `{id}` needs job `{p}` which is currently undefined")
-            ret[p] = ErrorExpr()
+            ret[p] = ~Expr(
+                _error=f"job `{id}` needs job `{p}` which is currently undefined"
+            )
     return ret
 
 
 def job(
     func: JobCall | None = None, *, id: str | None = None
-) -> typing.Callable[[JobCall], ErrorExpr] | ErrorExpr:
+) -> typing.Callable[[JobCall], Expr] | Expr:
     if func is None:
         return lambda func: job(func, id=id)
     id = id or func.__name__
@@ -492,8 +493,8 @@ def job(
         j.name = func.__doc__
         input = _job_needs(id, func)
         _job_returns(id, func(**input))
-        return ErrorExpr(
-            lambda: f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
+        return Expr(
+            _error=lambda: f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
         )
 
 

@@ -11,7 +11,6 @@ __all__ = [
     "MapContext",
     "Field",
     "PotentialField",
-    "ErrorExpr",
     "on_error",
 ]
 
@@ -38,7 +37,15 @@ class Expr(element.Element):
     _op_index: int = 0
 
     _field_access_error: str | None = ""
-    _error: str
+    _error: str | typing.Callable[[], str]
+
+    def _emit_error(self) -> typing.Self | None:
+        if self._error is None:
+            return None
+        if self._error:
+            _current_on_error(self._error() if callable(self._error) else self._error)
+            self._error = ""
+        return self
 
     def _clear(self):
         pass
@@ -47,6 +54,8 @@ class Expr(element.Element):
         return str(self)
 
     def __str__(self) -> str:
+        if self._emit_error():
+            return "<error>"
         return f"${{{{ {self._value} }}}}"
 
     def _as_operand(self, op_index: int) -> str:
@@ -76,60 +85,64 @@ class Expr(element.Element):
         )
 
     def __and__(self, other: Any) -> Self:
-        return self._binop(self, other, " && ")
+        return self._emit_error() or self._binop(self, other, " && ")
 
     def __rand__(self, other: Any) -> Self:
-        return self._binop(other, self, " && ")
+        return self._emit_error() or self._binop(other, self, " && ")
 
     def __or__(self, other: Any) -> Self:
-        return self._binop(self, other, " || ")
+        return self._emit_error() or self._binop(self, other, " || ")
 
     def __ror__(self, other: Any) -> Self:
-        return self._binop(other, self, " || ")
+        return self._emit_error() or self._binop(other, self, " || ")
 
     def __invert__(self) -> Self:
         op_index = _ops["!"]
-        return Expr(f"!{self._as_operand(op_index)}", _op_index=op_index)
+        return self._emit_error() or Expr(
+            f"!{self._as_operand(op_index)}", _op_index=op_index
+        )
 
     def __eq__(self, other: Any) -> Self:
-        return self._binop(self, other, " == ")
+        return self._emit_error() or self._binop(self, other, " == ")
 
     def __ne__(self, other: Any) -> Self:
-        return self._binop(self, other, " != ")
+        return self._emit_error() or self._binop(self, other, " != ")
 
     def __le__(self, other) -> Self:
-        return self._binop(self, other, " <= ")
+        return self._emit_error() or self._binop(self, other, " <= ")
 
     def __lt__(self, other) -> Self:
-        return self._binop(self, other, " < ")
+        return self._emit_error() or self._binop(self, other, " < ")
 
     def __ge__(self, other) -> Self:
-        return self._binop(self, other, " >= ")
+        return self._emit_error() or self._binop(self, other, " >= ")
 
     def __gt__(self, other) -> Self:
-        return self._binop(self, other, " > ")
+        return self._emit_error() or self._binop(self, other, " > ")
 
     def __getitem__(self, key: Any) -> Self:
         op_index = _ops["[]"]
-        return Expr(
+        return self._emit_error() or Expr(
             f"{self._as_operand(op_index)}[{self._syntax(key, op_index)}]",
             _op_index=op_index,
             _field_access_error=None,
         )
 
-    def __getattr__(self, key: str) -> "Expr | ErrorExpr":
+    def __getattr__(self, key: str) -> typing.Self:
+        if self._emit_error():
+            return self
         if self._field_access_error is not None:
-            return ErrorExpr(
-                f"`{key}` not available in `{self._value}`{self._field_access_error}",
-                immediate=True,
+            return ~Expr(
+                _error=f"`{key}` not available in `{self._value}`{self._field_access_error}",
             )
         op_index = _ops["."]
         return Expr(f"{self._as_operand(op_index)}.{key}", _op_index=_ops["."])
 
     def __bool__(self) -> bool:
-        _current_on_error(
-            "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
-        )
+        if self._emit_error() is None:
+            _current_on_error(
+                "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
+            )
         return True
 
 
@@ -151,75 +164,6 @@ def on_error(handler: typing.Callable[[str], typing.Any]):
         yield
     finally:
         _current_on_error = _default_on_error
-
-
-class ErrorExpr(Expr):
-    def __init__(
-        self, e: str | typing.Callable[[], str] | None = None, immediate: bool = False
-    ):
-        self.e = e
-        if immediate:
-            self._emit()
-
-    def _emit(self) -> Self:
-        if self.e:
-            if callable(self.e):
-                self.e = self.e()
-            _current_on_error(self.e)
-            self.e = None
-        return self
-
-    def asdict(self) -> typing.Any:
-        return str(self)
-
-    def __str__(self):
-        self._emit()
-        return "<error>"
-
-    def __call__(self, *args, **kwargs) -> Self:
-        return self._emit()
-
-    def __and__(self, other: Any) -> Self:
-        return self._emit()
-
-    def __rand__(self, other: Any) -> Self:
-        return self._emit()
-
-    def __or__(self, other: Any) -> Self:
-        return self._emit()
-
-    def __ror__(self, other: Any) -> Self:
-        return self._emit()
-
-    def __invert__(self) -> Self:
-        return self._emit()
-
-    def __eq__(self, other: Any) -> Self:
-        return self._emit()
-
-    def __ne__(self, other: Any) -> Self:
-        return self._emit()
-
-    def __le__(self, other) -> Self:
-        return self._emit()
-
-    def __lt__(self, other) -> Self:
-        return self._emit()
-
-    def __ge__(self, other) -> Self:
-        return self._emit()
-
-    def __gt__(self, other) -> Self:
-        return self._emit()
-
-    def __getitem__(self, key: Any) -> Self:
-        return self._emit()
-
-    def __getattr__(self, key: Any) -> Self:
-        return self._emit()
-
-    def __bool__(self) -> Self:
-        return self._emit()
 
 
 class Context(Expr):
@@ -327,9 +271,8 @@ class Field[T]:
 class PotentialField[T](Field[T]):
     def __get__(self, instance: Expr, owner: type[Context]) -> T:
         if instance is not None and self.priv_name not in instance.__dict__:
-            return ErrorExpr(
-                f"`{self.name}` not available in `{instance._value}`{instance._field_access_error}",
-                immediate=True,
+            return ~Expr(
+                _error=f"`{self.name}` not available in `{instance._value}`{instance._field_access_error}",
             )
         return super().__get__(instance, owner)
 
@@ -337,14 +280,12 @@ class PotentialField[T](Field[T]):
 def expr_function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
     def ret(*args: Expr, **kwargs: Any) -> Expr:
         if len(args) != nargs:
-            return ErrorExpr(
-                f"wrong number of arguments to `{name}`, expected {nargs}, got {len(args)}",
-                immediate=True,
+            return ~Expr(
+                _error=f"wrong number of arguments to `{name}`, expected {nargs}, got {len(args)}",
             )
         if kwargs:
-            return ErrorExpr(
-                f"unexpected keyword arguments to `{name}`, expected {nargs} positional arguments",
-                immediate=True,
+            return ~Expr(
+                _error=f"unexpected keyword arguments to `{name}`, expected {nargs} positional arguments",
             )
         return Expr(f"{name}({', '.join(Expr._syntax(a) for a in args)})")
 
