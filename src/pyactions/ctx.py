@@ -192,9 +192,13 @@ class _Updater[**P, F]:
             return None
         else:
             current = getattr(parent, self.field, self.field_init())
-            value = _merge(self.field, current, self.field_init(*args, **kwargs))
-            setattr(parent, self.field, value)
-            return value
+            try:
+                value = _merge(self.field, current, self.field_init(*args, **kwargs))
+                setattr(parent, self.field, value)
+                return value
+            except (AssertionError, TypeError, ValueError):
+                _ctx.error(f"illegal assignment to `{self.field}`")
+                return None
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
         self._apply(*args, **kwargs)
@@ -258,6 +262,45 @@ class _WorkflowUpdaters(_Updaters):
         workflow_call = WorkflowCallUpdater(WorkflowCall)
 
     on = OnUpdater(On)
+
+
+class _WorkflowOrJobUpdaters(_Updaters):
+    @classmethod
+    def instance(cls, reason: str):
+        if not _ctx.current_workflow:
+            _ctx.error(
+                f"`{reason}` can only be set in a workflow or a job. Did you forget a `@workflow` decoration?"
+            )
+            return None
+        return _ctx.current_job or _ctx.current_workflow
+
+    name = _Updater(str)
+    env = _Updater(dict)
+
+
+class _JobUpdaters(_Updaters):
+    @classmethod
+    def instance(cls, reason: str):
+        if not _ctx.current_workflow:
+            _ctx.error(
+                f"`{reason}` can only be set in a job or an implicit workflow job. Did you forget a `@workflow` decoration?"
+            )
+            return None
+        if not _ctx.current_job:
+            return _ctx.auto_job(reason)
+        return _ctx.current_job
+
+    runs_on = _Updater(str)
+
+    class StrategyUpdater(_Updater):
+        matrix = _Updater(Matrix)
+        fail_fast = _Updater(lambda v=True: v)
+        max_parallel = _Updater(int)
+
+    strategy = StrategyUpdater(Strategy)
+    outputs = _Updater(dict)
+    needs = _Updater(list)
+    steps = _Updater(list)
 
 
 _ctx = _Context()
@@ -327,32 +370,6 @@ def _merge[T](field: str, lhs: T | None, rhs: T | None, level: int = 0) -> T | N
                 return rhs
     except AssertionError as e:
         _ctx.error(f"cannot assign `{type(rhs).__name__}` to `{field}`")
-
-
-def _update_field(field: str, *args, **kwargs) -> typing.Any:
-    instance, f = _get_field(field)
-    if not f:
-        return None
-    ty = f.metadata.get("original_type", f.type)
-    current_value = getattr(instance, field) or ty()
-    value = args[0] if len(args) == 1 and not kwargs else ty(*args, **kwargs)
-    value = _merge(field, current_value, value)
-    setattr(instance, field, value)
-    return value
-
-
-def _update_subfield(field: str, subfield: str, *args, **kwargs) -> typing.Any:
-    value = _update_field(field)
-    if value is None:
-        return None
-    _, sf = _get_field(subfield, value)
-    if not sf:
-        return None
-    ty = sf.metadata.get("original_type", sf.type)
-    subvalue = args[0] if len(args) == 1 and not kwargs else ty(*args, **kwargs)
-    subvalue = _merge(subfield, getattr(value, subfield), subvalue)
-    setattr(value, subfield, subvalue)
-    return subvalue
 
 
 class GenerationError(Exception):
@@ -433,7 +450,7 @@ def _job_returns(id: str, result: JobResult):
         case None:
             return
         case dict():
-            _update_field("outputs", result)
+            _JobUpdaters.outputs(result)
             return
         case Expr():
             result = (result,)
@@ -446,7 +463,7 @@ def _job_returns(id: str, result: JobResult):
             return
     for x in result:
         if x.fields:
-            _update_field("outputs", {o: getattr(x, o) for o in sorted(x.fields)})
+            _JobUpdaters.outputs((o, getattr(x, o)) for o in sorted(x.fields))
         else:
             _ctx.error(
                 f"job `{id}` returns expression `{x._value}` which has no declared fields. Did you forget to use `returns()` on a step?",
@@ -457,7 +474,7 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     ret = {}
     for p in inspect.signature(func).parameters:
         if p in _ctx.current_workflow.jobs:
-            _update_field("needs", [p])
+            _JobUpdaters.needs([p])
             ret[p] = Expr(f"needs.{p}")
         else:
             _ctx.error(f"job `{id}` needs job `{p}` which is currently undefined")
@@ -480,19 +497,10 @@ def job(
         )
 
 
-def name(value: str):
-    _update_field("name", value)
-
-
-def env(*args, **kwargs):
-    _update_field("env", *args, **kwargs)
-
-
-def runs_on(value: Value[str]):
-    _update_field("runs_on", value)
-
-
+name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
+env = _WorkflowOrJobUpdaters.env
+runs_on = _JobUpdaters.runs_on
 
 
 def input(key: str, *args, **kwargs) -> InputProxy:
@@ -505,21 +513,7 @@ def input(key: str, *args, **kwargs) -> InputProxy:
     )
 
 
-class _StrategyUpdater:
-    def matrix(self, **kwargs) -> typing.Self:
-        _update_subfield("strategy", "matrix", **kwargs)
-        return self
-
-    def fail_fast(self, value: Value[bool] = True) -> typing.Self:
-        _update_subfield("strategy", "fail_fast", value)
-        return self
-
-    def max_parallel(self, value: Value[int]) -> typing.Self:
-        _update_subfield("strategy", "max_parallel", value)
-        return self
-
-
-strategy = _StrategyUpdater()
+strategy = _JobUpdaters.strategy
 matrix = strategy.matrix
 
 
@@ -540,7 +534,8 @@ class _StepUpdater:
     def _ensure_step(self) -> typing.Self:
         if self._step is not None:
             return self
-        steps = _update_field("steps", [Step()])
+        _JobUpdaters.steps([Step()])
+        steps = _ctx.current_job and _ctx.current_job.steps
         return _StepUpdater(steps)
 
     def _ensure_run_step(self) -> typing.Self:
