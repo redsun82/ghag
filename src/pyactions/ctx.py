@@ -84,8 +84,8 @@ class _Context(threading.local):
     def reset_job(self, job: Job | None = None, job_id: str | None = None):
         self.current_job = job
         self.current_job_id = job_id
-        self.steps.clear()
-        self.matrix.clear()
+        self.steps._clear()
+        self.matrix._clear()
 
     def empty(self) -> bool:
         return (
@@ -305,9 +305,9 @@ class _JobUpdaters(_Updaters):
                 if ret is not None:
                     for x in ret.include or ():
                         for k in x:
-                            matrix.activate(k)
+                            matrix._activate(k)
                     for k in ret.values or ():
-                        matrix.activate(k)
+                        matrix._activate(k)
 
         matrix = MatrixUpdater(Matrix)
         fail_fast = _Updater(lambda v=True: v)
@@ -554,13 +554,13 @@ class _StepUpdater:
         ret = self._ensure_step()
         if ret._step.id:
             _ctx.error(f"id was already specified for this step as `{ret._step.id}`")
-        elif steps.has(id):
+        elif steps._has(id):
             _ctx.error(f"id `{id}` was already specified for a step")
         else:
             ret._step.id = id
-            steps.activate(id)
+            steps._activate(id)
             for o in ret._step.outputs or ():
-                getattr(steps, id).outputs.activate(o)
+                getattr(steps, id).outputs._activate(o)
         return ret
 
     def name(self, name: Value[str]) -> typing.Self:
@@ -608,7 +608,7 @@ class _StepUpdater:
         ret._step.outputs += outs
         if ret._step.id:
             for o in outs:
-                getattr(steps, ret._step.id).outputs.activate(o)
+                getattr(steps, ret._step.id).outputs._activate(o)
         # TODO: support other shells than bash
         if kwargs:
             # TODO: handle quoting?
@@ -621,13 +621,13 @@ class _StepUpdater:
         return ret
 
     def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
-        if not start_from_one and not steps.has(prefix):
+        if not start_from_one and not steps._has(prefix):
             return prefix
         return next(
             (
                 id
                 for id in (f"{prefix}-{i}" for i in itertools.count(1))
-                if not steps.has(id)
+                if not steps._has(id)
             )
         )
 
@@ -638,7 +638,7 @@ class _StepUpdater:
         id = next((var for var, value in frame.f_locals.items() if value is self), None)
         if id is None:
             id = self._allocate_id("step", start_from_one=True)
-        elif steps.has(id):
+        elif steps._has(id):
             id = self._allocate_id(id)
         self.id(id)
         return id

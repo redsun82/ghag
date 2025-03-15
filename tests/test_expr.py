@@ -84,26 +84,26 @@ def test_potential_fields():
     with pytest.raises(ValueError):
         _ = x.y
 
-    x.activate("a")
+    x._activate("a")
     assert str(x.a) == "${{ x.a }}"
 
-    x.activate("y")
+    x._activate("y")
     assert str(x.y) == "${{ x.y }}"
 
     with pytest.raises(ValueError):
         _ = x.y.b
 
-    x.y.activate("b")
+    x.y._activate("b")
     assert str(x.y.b) == "${{ x.y.b }}"
 
-    x.clear()
+    x._clear()
     with pytest.raises(ValueError):
         _ = x.a
 
     with pytest.raises(ValueError):
         _ = x.y
 
-    x.activate("y")
+    x._activate("y")
     with pytest.raises(ValueError):
         _ = x.y.b
 
@@ -125,14 +125,14 @@ def test_map_context():
     with pytest.raises(ValueError):
         _ = x.b.bar
 
-    x.a.activate("foo")
-    x.b.activate("bar")
+    x.a._activate("foo")
+    x.b._activate("bar")
 
     assert str(x.a.foo) == "${{ x.a.foo }}"
     assert str(x.b.bar) == "${{ x.b.bar }}"
     assert str(x.b.bar.c) == "${{ x.b.bar.c }}"
 
-    x.clear()
+    x._clear()
 
     with pytest.raises(ValueError):
         _ = x.a.foo

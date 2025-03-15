@@ -39,7 +39,7 @@ class Expr(element.Element):
     fields: set[str]
     _no_field_error: str
 
-    def clear(self):
+    def _clear(self):
         pass
 
     def asdict(self) -> typing.Any:
@@ -221,14 +221,14 @@ class Context(Expr):
     def __post_init__(self):
         self.fields = set()
 
-    def clear(self):
+    def _clear(self):
         for f in self.fields:
-            getattr(self, f).clear()
+            getattr(self, f)._clear()
             descriptor = getattr(type(self), f, None)
             if descriptor:
                 descriptor.clear(self)
 
-    def activate(self, field: str):
+    def _activate(self, field: str):
         cls = type(self)
         match getattr(cls, field, None):
             case None:
@@ -251,8 +251,8 @@ class MapContext[T](Context):
         self._fieldcls = fieldcls
         self._args = args
 
-    def clear(self):
-        super().clear()
+    def _clear(self):
+        super()._clear()
         for f in self.fields:
             delattr(self, f)
         self.fields = set()
@@ -260,7 +260,7 @@ class MapContext[T](Context):
     def __getattr__(self, item) -> T:
         return super().__getattr__(item)
 
-    def activate(self, field: str):
+    def _activate(self, field: str):
         self.fields.add(field)
         setattr(
             self,
@@ -268,7 +268,7 @@ class MapContext[T](Context):
             self._fieldcls(f"{self._value}.{field}", *self._args, fields=set()),
         )
 
-    def has(self, field: str) -> bool:
+    def _has(self, field: str) -> bool:
         return field in self.fields
 
     @property
