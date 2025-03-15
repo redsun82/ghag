@@ -221,24 +221,6 @@ def test_strategy_with_fail_fast_and_max_parallel():
 
 @expect(
     """
-on: {}
-jobs:
-  a_job:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        x: [1, 2, 3]
-        y: [a, b, c]
-"""
-)
-def test_matrix_shortcut():
-    @job
-    def a_job():
-        matrix(x=[1, 2, 3], y=["a", "b", "c"])
-
-
-@expect(
-    """
 on:
   workflow_dispatch: {}
 jobs:

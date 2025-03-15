@@ -489,8 +489,6 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 
 
 strategy = _JobUpdaters.strategy
-matrix = strategy.matrix
-
 
 steps = _ctx.steps
 
