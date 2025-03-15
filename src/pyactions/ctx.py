@@ -176,51 +176,86 @@ class _Updater[**P, F]:
     def _get_parent(self):
         match self.owner:
             case _Updater():
-                self.owner()
-                grandparent = self.owner._get_parent()
-                return getattr(grandparent, self.owner.field)
+                return self.owner._apply()
             case None:
                 assert False
             case _:
                 return self.owner.instance(self.field)
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
+    def _apply(self, *args: P.args, **kwargs: P.kwargs) -> F | None:
         parent = self._get_parent()
-        current = getattr(parent, self.field, self.field_init())
-        value = _merge(self.field, current, self.field_init(*args, **kwargs))
-        setattr(parent, self.field, value)
+        if parent is None:
+            # error already reported, return a dummy value
+            return None
+        elif not kwargs and args == (None,):
+            setattr(parent, self.field, None)
+            return None
+        else:
+            current = getattr(parent, self.field, self.field_init())
+            value = _merge(self.field, current, self.field_init(*args, **kwargs))
+            setattr(parent, self.field, value)
+            return value
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
+        self._apply(*args, **kwargs)
         return self.owner if isinstance(self.owner, _Updater) else self
 
     def __get__(self, instance: typing.Any, owner: type[_Updaters]) -> typing.Self:
         if instance is None:
             return self
-        return _Updater(self.field_init, self.field, instance)
+        selfcls = typing.cast(_Updater, type(self))
+        kwargs = dict(self.__dict__)
+        kwargs["owner"] = instance
+        return selfcls(**kwargs)
+
+
+class _MapUpdater[**P, F](_Updater):
+    value_init: typing.Callable[P, F]
+
+    def __init__(self, value_init: typing.Callable[P, F], **kwargs):
+        self.value_init = value_init
+        kwargs.setdefault("field_init", dict)
+        super().__init__(**kwargs)
+
+    def __set_name__(self, owner, name):
+        super().__set_name__(owner, f"{name}s")
+
+    def __call__(self, key: str, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
+        return super().__call__({key: self.value_init(*args, **kwargs)})
 
 
 class _WorkflowUpdaters(_Updaters):
     @classmethod
     def instance(cls, reason: str):
+        if _ctx.auto_job_reason:
+            _ctx.error(
+                f"`{reason}` is a workflow field, and an implicit job was created when setting `{_ctx.auto_job_reason}`"
+            )
+            return None
         if _ctx.current_job:
             _ctx.error(
                 f"`{reason}` is a workflow field, it cannot be set in job `{_ctx.current_job_id}`"
             )
-        elif not _ctx.current_workflow:
+            return None
+        if not _ctx.current_workflow:
             _ctx.error(
                 f"`{reason}` can only be set in a workflow. Did you forget a `@workflow` decoration?"
             )
-        else:
-            return _ctx.current_workflow
+            return None
+        return _ctx.current_workflow
 
     class OnUpdater(_Updater):
         pull_request = _Updater(PullRequest)
 
-        class CallUpdater(_Updater):
-            def input(self, key, description=None, **kwargs) -> typing.Self:
-                self(inputs={key: Input(description, **kwargs)})
-                return self
+        class WorkflowDispatchUpdater(_Updater):
+            input = _MapUpdater(Input)
 
-        workflow_call = CallUpdater(WorkflowCall)
-        workflow_dispatch = CallUpdater(WorkflowDispatch)
+        workflow_dispatch = WorkflowDispatchUpdater(WorkflowDispatch)
+
+        class WorkflowCallUpdater(WorkflowDispatchUpdater):
+            secret = _MapUpdater(Secret)
+
+        workflow_call = WorkflowCallUpdater(WorkflowCall)
 
     on = OnUpdater(On)
 
@@ -457,47 +492,7 @@ def runs_on(value: Value[str]):
     _update_field("runs_on", value)
 
 
-class _OnUpdater:
-    def pull_request(self, **kwargs) -> typing.Self:
-        _update_subfield("on", "pull_request", **kwargs)
-        return self
-
-    @dataclass
-    class _DispatchUpdater:
-        def __call__(self, *args, **kwargs) -> "_OnUpdater":
-            _update_subfield("on", "workflow_dispatch", *args, **kwargs)
-            return on
-
-        def input(self, key, description=None, **kwargs) -> typing.Self:
-            _update_subfield(
-                "on", "workflow_dispatch", inputs={key: Input(description, **kwargs)}
-            )
-            return self
-
-    workflow_dispatch = _DispatchUpdater()
-
-    @dataclass
-    class _CallUpdater:
-        def __call__(self, *args, **kwargs) -> "_OnUpdater":
-            _update_subfield("on", "workflow_call", *args, **kwargs)
-            return on
-
-        def input(self, key, description=None, **kwargs) -> typing.Self:
-            _update_subfield(
-                "on", "workflow_call", inputs={key: Input(description, **kwargs)}
-            )
-            return self
-
-        def secret(self, key, description=None, **kwargs) -> typing.Self:
-            _update_subfield(
-                "on", "workflow_call", secrets={key: Secret(description, **kwargs)}
-            )
-            return self
-
-    workflow_call = _CallUpdater()
-
-
-on = _OnUpdater()
+on = _WorkflowUpdaters.on
 
 
 def input(key: str, *args, **kwargs) -> InputProxy:

@@ -94,7 +94,7 @@ def test_workflow_fields_in_job(error):
     def a_job():
         name("a name")
 
-        error("`on` is not a job field")
+        error("`on` is a workflow field, it cannot be set in job `a_job`")
         on.workflow_dispatch()
 
 
@@ -103,7 +103,7 @@ def test_workflow_fields_in_auto_job(error):
     runs_on("x")
 
     error(
-        "`on` is not a job field, and an implicit job was created when setting `runs_on`"
+        "`on` is a workflow field, and an implicit job was created when setting `runs_on`"
     )
     on.workflow_dispatch()
 
