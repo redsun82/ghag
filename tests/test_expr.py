@@ -3,6 +3,7 @@ import pytest
 from src.pyactions.ctx import GenerationError
 from src.pyactions.expr import *
 from src.pyactions.expr import expr_function
+import unittest.mock
 
 
 def test_ops():
@@ -168,3 +169,21 @@ def test_functions():
     for trial in (lambda: f(1), lambda: f(1, 2, 3, 4), lambda: f(x=1, y=2, z=3)):
         with pytest.raises(ValueError):
             trial()
+
+
+def test_error_expr():
+    e = unittest.mock.Mock()
+    with on_error(e):
+        ee = ErrorExpr("an error", immediate=True)
+        e.assert_called_once_with("an error")
+        e.reset_mock()
+        _ = str(ee.x.y[0] & 3 | True == "x")
+        e.assert_not_called()
+
+        ee = ErrorExpr("another error")
+        e.assert_not_called()
+        _ = str(ee)
+        e.assert_called_once_with("another error")
+        e.reset_mock()
+        _ = str(ee.x.y[0] & 3 | True == "x")
+        e.assert_not_called()
