@@ -119,23 +119,42 @@ def test_map_context():
 
     x = X("x")
 
+    assert not x.a._has("foo")
     with pytest.raises(ValueError):
         _ = x.a.foo
 
+    assert not x.b._has("bar")
     with pytest.raises(ValueError):
         _ = x.b.bar
 
     x.a._activate("foo")
     x.b._activate("bar")
 
+    assert x.a._has("foo")
     assert str(x.a.foo) == "${{ x.a.foo }}"
+    assert x.b._has("bar")
     assert str(x.b.bar) == "${{ x.b.bar }}"
     assert str(x.b.bar.c) == "${{ x.b.bar.c }}"
 
     x._clear()
 
+    assert not x.a._has("foo")
     with pytest.raises(ValueError):
         _ = x.a.foo
 
+    assert not x.b._has("bar")
     with pytest.raises(ValueError):
         _ = x.b.bar
+
+
+def test_free_map_context():
+    x = MapContext("x")
+    x._activate_all()
+    assert x._has("foo")
+    assert str(x.foo) == "${{ x.foo }}"
+
+    x._clear()
+
+    assert not x._has("foo")
+    with pytest.raises(ValueError):
+        _ = x.foo

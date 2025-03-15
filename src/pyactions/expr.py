@@ -36,7 +36,7 @@ class Expr(element.Element):
     _value: str
     _op_index: int = 0
 
-    fields: set[str]
+    _fields: set[str]
     _no_field_error: str
 
     def _clear(self):
@@ -113,7 +113,7 @@ class Expr(element.Element):
         )
 
     def __getattr__(self, key: str) -> "Expr | ErrorExpr":
-        if self.fields is not None and key not in self.fields:
+        if self._fields is not None and key not in self._fields:
             return ErrorExpr(
                 f"`{key}` not available in `{self._value}`{self._no_field_error or ''}",
                 immediate=True,
@@ -121,11 +121,11 @@ class Expr(element.Element):
         op_index = _ops["."]
         return Expr(f"{self._as_operand(op_index)}.{key}")
 
-    def __bool__(self) -> "ErrorExpr":
-        return ErrorExpr(
+    def __bool__(self) -> bool:
+        _current_on_error(
             "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
-            immediate=True,
         )
+        return True
 
 
 type Value[T] = Expr | T
@@ -219,10 +219,10 @@ class ErrorExpr(Expr):
 
 class Context(Expr):
     def __post_init__(self):
-        self.fields = set()
+        self._fields = set()
 
     def _clear(self):
-        for f in self.fields:
+        for f in self._fields:
             getattr(self, f)._clear()
             descriptor = getattr(type(self), f, None)
             if descriptor:
@@ -250,26 +250,34 @@ class MapContext[T](Context):
         super().__init__(value, **kwargs)
         self._fieldcls = fieldcls
         self._args = args
+        self._free = False
 
     def _clear(self):
         super()._clear()
-        for f in self.fields:
+        for f in self._fields:
             delattr(self, f)
-        self.fields = set()
+        self._fields = set()
+        self._free = False
 
     def __getattr__(self, item) -> T:
+        if self._free:
+            self._activate(item)
+            return getattr(self, item)
         return super().__getattr__(item)
 
     def _activate(self, field: str):
-        self.fields.add(field)
+        self._fields.add(field)
         setattr(
             self,
             field,
-            self._fieldcls(f"{self._value}.{field}", *self._args, fields=set()),
+            self._fieldcls(f"{self._value}.{field}", *self._args, _fields=set()),
         )
 
+    def _activate_all(self):
+        self._free = True
+
     def _has(self, field: str) -> bool:
-        return field in self.fields
+        return self._free or field in self._fields
 
     @property
     def ALL(self) -> T:
@@ -295,7 +303,7 @@ class Field[T]:
     def __get__(self, instance: Expr, owner: type) -> T:
         if instance is None:
             return self
-        instance.fields.add(self.name)
+        instance._fields.add(self.name)
         self.activate(instance)
         return getattr(instance, self.priv_name)
 
@@ -307,7 +315,7 @@ class Field[T]:
                 self.cls(
                     f"{instance._value}.{self.name}",
                     *self.args,
-                    fields=set(),
+                    _fields=set(),
                     **self.kwargs,
                 ),
             )

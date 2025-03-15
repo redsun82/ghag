@@ -453,8 +453,8 @@ def _job_returns(id: str, result: JobResult):
             )
             return
     for x in result:
-        if x.fields:
-            _JobUpdaters.outputs((o, getattr(x, o)) for o in sorted(x.fields))
+        if x._fields:
+            _JobUpdaters.outputs((o, getattr(x, o)) for o in sorted(x._fields))
         else:
             _ctx.error(
                 f"job `{id}` returns expression `{x._value}` which has no declared fields. Did you forget to use `returns()` on a step?",
