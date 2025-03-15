@@ -45,6 +45,20 @@ def _get_user_frame_info() -> inspect.Traceback:
     return inspect.getframeinfo(_get_user_frame())
 
 
+class _StepContext(Context):
+    outputs = Field(
+        MapContext,
+        _no_field_error=", use `returns()` on the corresponding step to declare them",
+    )
+    result = Field()
+    outcome = Field()
+
+
+class _StepsContext(MapContext):
+    def __init__(self):
+        super().__init__("steps", _StepContext)
+
+
 @dataclass
 class _Context(threading.local):
     current_workflow: Workflow | None = None
@@ -53,14 +67,19 @@ class _Context(threading.local):
     current_job_id: str | None = None
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
+    steps: _StepsContext = field(default_factory=_StepsContext)
 
     def reset(self):
+        self.reset_job()
         self.current_workflow = None
-        self.current_job = None
         self.current_workflow_id = None
-        self.current_job_id = None
         self.auto_job_reason = None
         self.errors = []
+
+    def reset_job(self, job: Job | None = None, job_id: str | None = None):
+        self.current_job = job
+        self.current_job_id = job_id
+        self.steps.clear()
 
     def empty(self) -> bool:
         return (
@@ -88,62 +107,58 @@ class _Context(threading.local):
             self.error(message)
         return cond
 
+    @contextlib.contextmanager
+    def workflow(self, id: str) -> typing.Generator[Workflow, None, None]:
+        assert self.empty()
+        self.current_workflow = Workflow()
+        self.current_workflow_id = id
+        with on_error(lambda message: self.error(message)):
+            try:
+                yield self.current_workflow
+                if self.errors:
+                    raise GenerationError(self.errors)
+            finally:
+                self.reset()
+
+    @contextlib.contextmanager
+    def job(self, id: str) -> typing.Generator[Job, None, None]:
+        previous_job = self.current_job
+        previous_job_id = self.current_job_id
+        job = self.current_job = Job()
+        self.current_job_id = id
+        try:
+            yield job
+            if self.auto_job_reason:
+                self.error(
+                    f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{self.auto_job_reason}`",
+                )
+            elif not self.current_workflow or previous_job:
+                self.error(f"job `{id}` not created directly inside a workflow body")
+            elif id in self.current_workflow.jobs:
+                self.error(
+                    f"job `{id}` already exists in workflow `{current_workflow_id()}`",
+                )
+            else:
+                self.current_workflow.jobs[id] = job
+        finally:
+            self.reset_job(previous_job, previous_job_id)
+
+    def auto_job(self, reason: str) -> Job:
+        assert not self.current_job and not self.auto_job_reason
+        wf = self.current_workflow
+        job = Job(name=wf.name)
+        if not wf.jobs:
+            wf.jobs[current_workflow_id()] = job
+            _ctx.current_job = job
+            _ctx.auto_job_reason = reason
+        else:
+            _ctx.error(
+                f"`{reason}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
+            )
+        return job
+
 
 _ctx = _Context()
-
-
-@contextlib.contextmanager
-def _build_workflow(id: str):
-    assert _ctx.empty()
-    _ctx.current_workflow = Workflow()
-    _ctx.current_workflow_id = id
-    with on_error(lambda message: _ctx.error(message)):
-        try:
-            yield _ctx.current_workflow
-            if _ctx.errors:
-                raise GenerationError(_ctx.errors)
-        finally:
-            _ctx.reset()
-            steps.clear()
-
-
-@contextlib.contextmanager
-def _build_job(id: str):
-    previous_job = _ctx.current_job
-    job = _ctx.current_job = Job()
-    _ctx.current_job_id = id
-    try:
-        yield job
-        if _ctx.auto_job_reason:
-            _ctx.error(
-                f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{_ctx.auto_job_reason}`",
-            )
-        elif not _ctx.current_workflow or previous_job:
-            _ctx.error(f"job `{id}` not created directly inside a workflow body")
-        elif id in _ctx.current_workflow.jobs:
-            _ctx.error(
-                f"job `{id}` already exists in workflow `{current_workflow_id()}`",
-            )
-        else:
-            _ctx.current_workflow.jobs[id] = job
-    finally:
-        _ctx.current_job = previous_job
-        _ctx.current_job_id = None
-        steps.clear()
-
-
-def _start_auto_job_reason(field: str) -> Job:
-    assert isinstance(current(), Workflow) and not _ctx.auto_job_reason
-    job = Job(name=current().name)
-    if not current().jobs:
-        current().jobs[current_workflow_id()] = job
-        _ctx.current_job = job
-        _ctx.auto_job_reason = field
-    else:
-        _ctx.error(
-            f"`{field}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
-        )
-    return job
 
 
 def current() -> Workflow | Job | None:
@@ -167,7 +182,7 @@ def _get_field(
     if ret is None and isinstance(instance, Workflow):
         ret = _try_get_field(field, Job)
         assert ret, f"field {field} not found in current instance (Workflow or Job)"
-        return _start_auto_job_reason(field), ret
+        return _ctx.auto_job(field), ret
     if not ret:
         _ctx.error(
             f"`{field}` is not a {type(instance).__name__.lower()} field",
@@ -254,7 +269,7 @@ class WorkflowInfo:
     errors: list[Error]
 
     def instantiate(self) -> Workflow:
-        with _build_workflow(self.id) as wf:
+        with _ctx.workflow(self.id) as wf:
             for e in self.errors:
                 e.workflow_id = e.workflow_id or current_workflow_id()
             _ctx.errors += self.errors
@@ -354,7 +369,7 @@ def job(
     if func is None:
         return lambda func: job(func, id=id)
     id = id or func.__name__
-    with _build_job(id) as j:
+    with _ctx.job(id) as j:
         j.name = func.__doc__
         input = _job_needs(id, func)
         _job_returns(id, func(**input))
@@ -446,22 +461,7 @@ strategy = _StrategyUpdater()
 matrix = strategy.matrix
 
 
-class _StepContext(Context):
-    outputs = Field(
-        MapContext,
-        _no_field_error=", use `returns()` on the corresponding step to declare them",
-    )
-    result = Field()
-    outcome = Field()
-
-
-class _StepsContext(MapContext, threading.local):
-    def __init__(self):
-        MapContext.__init__(self, "steps", _StepContext)
-        threading.local.__init__(self)
-
-
-steps = _StepsContext()
+steps = _ctx.steps
 
 
 @dataclass
