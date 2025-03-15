@@ -331,3 +331,20 @@ class PotentialField[T](Field[T]):
                 f"`{self.name}` not available in `{instance._value}`", immediate=True
             )
         return super().__get__(instance, owner)
+
+
+def expr_function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
+    def ret(*args: Expr, **kwargs: Any) -> Expr:
+        if len(args) != nargs:
+            return ErrorExpr(
+                f"wrong number of arguments to `{name}`, expected {nargs}, got {len(args)}",
+                immediate=True,
+            )
+        if kwargs:
+            return ErrorExpr(
+                f"unexpected keyword arguments to `{name}`, expected {nargs} positional arguments",
+                immediate=True,
+            )
+        return Expr(f"{name}({', '.join(Expr._syntax(a) for a in args)})")
+
+    return ret

@@ -2,6 +2,7 @@ import pytest
 
 from src.pyactions.ctx import GenerationError
 from src.pyactions.expr import *
+from src.pyactions.expr import expr_function
 
 
 def test_ops():
@@ -158,3 +159,12 @@ def test_free_map_context():
     assert not x._has("foo")
     with pytest.raises(ValueError):
         _ = x.foo
+
+
+def test_functions():
+    f = expr_function("foo", 3)
+    x = Expr("x")
+    assert str(f(1, x, "s's")) == "${{ foo(1, x, 's''s') }}"
+    for trial in (lambda: f(1), lambda: f(1, 2, 3, 4), lambda: f(x=1, y=2, z=3)):
+        with pytest.raises(ValueError):
+            trial()

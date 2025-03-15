@@ -214,3 +214,15 @@ def test_unavailable_matrix_values(error):
             "`a` not available in `matrix`, it must be included with `strategy.matrix()`"
         )
         step(matrix.a)
+
+    @job
+    def j3():
+        strategy.matrix(fromJson("{}ß"))
+
+    @job
+    def j4():
+        strategy.matrix(x=[42])
+        error(
+            "`a` not available in `matrix`, it must be included with `strategy.matrix()`"
+        )
+        step(matrix.a)

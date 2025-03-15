@@ -193,11 +193,15 @@ class _Updater[**P, F]:
         if parent is None:
             # error already reported, return a dummy value
             return None
-        elif not kwargs and args == (None,):
-            setattr(parent, self.field, None)
-            return None
+        elif (
+            not kwargs
+            and len(args) == 1
+            and (isinstance(args[0], Expr) or args[0] == None)
+        ):
+            setattr(parent, self.field, args[0])
+            return args[0]
         else:
-            current = getattr(parent, self.field, self.field_init())
+            current = getattr(parent, self.field)
             try:
                 value = _merge(self.field, current, self.field_init(*args, **kwargs))
                 setattr(parent, self.field, value)
@@ -302,12 +306,16 @@ class _JobUpdaters(_Updaters):
         class MatrixUpdater(_Updater):
             def _apply(self, *args, **kwargs):
                 ret = super()._apply(*args, **kwargs)
-                if ret is not None:
-                    for x in ret.include or ():
-                        for k in x:
+                match ret:
+                    case Matrix():
+                        for x in ret.include or ():
+                            for k in x:
+                                matrix._activate(k)
+                        for k in ret.values or ():
                             matrix._activate(k)
-                    for k in ret.values or ():
-                        matrix._activate(k)
+                    case Expr():
+                        # if coming from an expression, we don't know the keys, allow all
+                        matrix._activate_all()
 
         matrix = MatrixUpdater(Matrix)
         fail_fast = _Updater(lambda v=True: v)
@@ -668,3 +676,5 @@ class _StepUpdater:
 step = _StepUpdater()
 run = step.run
 use = step.use
+
+fromJson = expr.expr_function("fromJson")

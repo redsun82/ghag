@@ -164,12 +164,15 @@ jobs:
       matrix:
         x: [1, 2, 3]
         y: [a, b, c]
+    steps:
+    - run: ${{ matrix.x }}, ${{ matrix.y }}
 """
 )
 def test_strategy_with_cross_matrix():
     @job
     def a_job():
         strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"])
+        run(f"{matrix.x}, {matrix.y}")
 
 
 @expect(
@@ -181,11 +184,13 @@ jobs:
     strategy:
       matrix:
         include:
-        - {x: 100, y: z}
+        - {x: 100, y: z, z: 42}
         exclude:
         - {x: 1, y: a}
         x: [1, 2, 3]
         y: [a, b, c]
+    steps:
+    - run: ${{ matrix.x }}, ${{ matrix.y }}, ${{ matrix.z }}
 """
 )
 def test_strategy_with_include_exclude_matrix():
@@ -195,8 +200,9 @@ def test_strategy_with_include_exclude_matrix():
             x=[1, 2, 3],
             y=["a", "b", "c"],
             exclude=[{"x": 1, "y": "a"}],
-            include=[{"x": 100, "y": "z"}],
+            include=[{"x": 100, "y": "z", "z": 42}],
         )
+        run(f"{matrix.x}, {matrix.y}, {matrix.z}")
 
 
 @expect(
@@ -211,12 +217,15 @@ jobs:
         y: [a, b, c]
       fail-fast: true
       max-parallel: 5
+    steps:
+    - run: ${{ matrix.x }}, ${{ matrix.y }}
 """
 )
 def test_strategy_with_fail_fast_and_max_parallel():
     @job
     def a_job():
         strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"]).fail_fast().max_parallel(5)
+        run(f"{matrix.x}, {matrix.y}")
 
 
 @expect(
@@ -239,6 +248,28 @@ def test_strategy_in_workflow():
     on.workflow_dispatch()
     strategy.matrix(x=[1, 2, 3], y=["a", "b"], include={"z": 42})
     run(f"{matrix.x}, {matrix.y}, {matrix.z}")
+
+
+@expect(
+    """
+on:
+  workflow_call:
+    inputs:
+      i: {required: true}
+  workflow_dispatch:
+    inputs:
+      i: {required: true}
+jobs:
+  test_matrix_from_input:
+    runs-on: ubuntu-latest
+    strategy: {matrix: '${{ fromJson(inputs.i) }}'}
+    steps:
+    - run: ${{ matrix.foo }}, ${{ matrix.bar }}
+"""
+)
+def test_matrix_from_input(i):
+    strategy.matrix(fromJson(i))
+    run(f"{matrix.foo}, {matrix.bar}")
 
 
 @expect(
