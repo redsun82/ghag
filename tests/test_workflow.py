@@ -551,6 +551,22 @@ def test_id():
     """
 on: {}
 jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+    - name: ${{ steps.*.result }}
+"""
+)
+def test_steps_array():
+    @job
+    def j():
+        step(steps.ALL.result)
+
+
+@expect(
+    """
+on: {}
+jobs:
   test_if_expr:
     runs-on: ubuntu-latest
     steps:

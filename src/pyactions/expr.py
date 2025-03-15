@@ -168,29 +168,36 @@ def on_error(handler: typing.Callable[[str], typing.Any]):
 
 class Context(Expr):
     _fields: set[str] = dataclasses.field(default_factory=set)
+    _inactive_error: str
+
+    def __post_init__(self):
+        self._error = self._inactive_error
 
     def _clear(self):
+        self._error = self._inactive_error
         for f in self._fields:
             getattr(self, f)._clear()
             descriptor = getattr(type(self), f, None)
             if descriptor:
                 descriptor.clear(self)
 
-    def _activate(self, field: str):
+    def _activate(self, field: str | None = None):
         cls = type(self)
-        match getattr(cls, field, None):
-            case None:
-                raise AttributeError(f"{cls.__name__} has no field `{field}`")
-            case PotentialField() as f:
-                f.activate(self)
-            case _:
-                raise AttributeError(
-                    f"{cls.__name__} field `{field}` is not a PotentialField"
-                )
+        self._error = None
+        if field:
+            match getattr(cls, field, None):
+                case None:
+                    raise AttributeError(f"{cls.__name__} has no field `{field}`")
+                case PotentialField() as f:
+                    f.activate(self)
+                case _:
+                    raise AttributeError(
+                        f"{cls.__name__} field `{field}` is not a PotentialField"
+                    )
 
     @property
     def ALL(self) -> Expr:
-        return Expr(f"{self._value}.*")
+        return self._emit_error() or Expr(f"{self._value}.*")
 
 
 class MapContext[T](Context):
@@ -213,15 +220,18 @@ class MapContext[T](Context):
             return getattr(self, item)
         return super().__getattr__(item)
 
-    def _activate(self, field: str):
-        self._fields.add(field)
-        setattr(
-            self,
-            field,
-            self._fieldcls(f"{self._value}.{field}", *self._args),
-        )
+    def _activate(self, field: str | None = None):
+        super()._activate()
+        if field:
+            self._fields.add(field)
+            setattr(
+                self,
+                field,
+                self._fieldcls(f"{self._value}.{field}", *self._args),
+            )
 
     def _activate_all(self):
+        self._activate()
         self._free = True
 
     def _has(self, field: str) -> bool:
@@ -229,7 +239,10 @@ class MapContext[T](Context):
 
     @property
     def ALL(self) -> T:
-        return self._fieldcls(f"{self._value}.*", *self._args, fields=set())
+        return self._emit_error() or self._fieldcls(
+            f"{self._value}.*",
+            *self._args,
+        )
 
 
 class Field[T]:

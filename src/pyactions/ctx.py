@@ -54,24 +54,36 @@ class _StepContext(Context):
     outcome = Field()
 
 
-class _StepsContext(MapContext):
+class _StepsContext(MapContext[_StepContext]):
     def __init__(self):
-        super().__init__("steps", _StepContext)
+        super().__init__(
+            "steps",
+            _StepContext,
+        )
 
 
 @dataclass
 class _Context(threading.local):
+
     current_workflow: Workflow | None = None
     current_job: Job | None = None
     current_workflow_id: str | None = None
     current_job_id: str | None = None
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
-    steps: _StepsContext = field(default_factory=_StepsContext)
+    steps: _StepsContext = field(
+        default_factory=lambda: MapContext(
+            "steps",
+            _StepContext,
+            _field_access_error=", no step has that `id`",
+            _inactive_error="`steps` context is only available in a job",
+        )
+    )
     matrix: MapContext = field(
         default_factory=lambda: MapContext(
             "matrix",
             _field_access_error=", it must be included with `strategy.matrix()`",
+            _inactive_error="`matrix` context is only available in a matrix job",
         )
     )
 
@@ -133,6 +145,8 @@ class _Context(threading.local):
         previous_job_id = self.current_job_id
         job = self.current_job = Job()
         self.current_job_id = id
+        self.steps._activate()
+        self.matrix._clear()
         try:
             yield job
             if self.auto_job_reason:
