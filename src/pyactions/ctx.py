@@ -158,6 +158,73 @@ class _Context(threading.local):
         return job
 
 
+class _Updaters:
+    @classmethod
+    def instance(cls, reason: str) -> Workflow | Job: ...
+
+
+@dataclass
+class _Updater[**P, F]:
+    field_init: typing.Callable[P, F]
+    field: str | None = None
+    owner: type[_Updaters] | typing.Self | None = None
+
+    def __set_name__(self, owner: type[_Updaters], name: str):
+        self.field = name
+        self.owner = owner
+
+    def _get_parent(self):
+        match self.owner:
+            case _Updater():
+                self.owner()
+                grandparent = self.owner._get_parent()
+                return getattr(grandparent, self.owner.field)
+            case None:
+                assert False
+            case _:
+                return self.owner.instance(self.field)
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
+        parent = self._get_parent()
+        current = getattr(parent, self.field, self.field_init())
+        value = _merge(self.field, current, self.field_init(*args, **kwargs))
+        setattr(parent, self.field, value)
+        return self.owner if isinstance(self.owner, _Updater) else self
+
+    def __get__(self, instance: typing.Any, owner: type[_Updaters]) -> typing.Self:
+        if instance is None:
+            return self
+        return _Updater(self.field_init, self.field, instance)
+
+
+class _WorkflowUpdaters(_Updaters):
+    @classmethod
+    def instance(cls, reason: str):
+        if _ctx.current_job:
+            _ctx.error(
+                f"`{reason}` is a workflow field, it cannot be set in job `{_ctx.current_job_id}`"
+            )
+        elif not _ctx.current_workflow:
+            _ctx.error(
+                f"`{reason}` can only be set in a workflow. Did you forget a `@workflow` decoration?"
+            )
+        else:
+            return _ctx.current_workflow
+
+    class OnUpdater(_Updater):
+        pull_request = _Updater(PullRequest)
+
+        class CallUpdater(_Updater):
+            def input(self, key, description=None, **kwargs) -> typing.Self:
+                self(inputs={key: Input(description, **kwargs)})
+                return self
+
+        workflow_call = CallUpdater(WorkflowCall)
+        workflow_dispatch = CallUpdater(WorkflowDispatch)
+
+    on = OnUpdater(On)
+
+
 _ctx = _Context()
 
 

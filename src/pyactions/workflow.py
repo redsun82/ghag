@@ -8,22 +8,6 @@ from dataclasses import field
 from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.comments import CommentedMap
 
-__all__ = [
-    "PullRequest",
-    "WorkflowDispatch",
-    "On",
-    "Step",
-    "RunStep",
-    "UseStep",
-    "Job",
-    "Strategy",
-    "Matrix",
-    "Workflow",
-    "Input",
-    "Secret",
-    "InputProxy",
-]
-
 
 class Input[T](Element):
     Type: typing.ClassVar[type] = typing.Literal[

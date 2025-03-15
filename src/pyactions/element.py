@@ -35,6 +35,18 @@ class Element:
                     f,
                     dataclasses.field(default=None, metadata={"original_type": ty}),
                 )
+
+        def __repr__(self):
+            args = ", ".join(
+                f"{f}={v!r}"
+                for f, v in (
+                    (f.name, getattr(self, f.name)) for f in dataclasses.fields(self)
+                )
+                if v is not None
+            )
+            return f"{type(self).__name__}({args})"
+
+        cls.__repr__ = __repr__
         dataclasses.dataclass(cls)
 
 
