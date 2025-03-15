@@ -314,31 +314,6 @@ def current_workflow_id() -> str | None:
     return _ctx.current_workflow_id
 
 
-def _try_get_field(field: str, instance: Element | None = None) -> dataclasses.Field:
-    instance = instance or current()
-    return next((f for f in fields(instance or current()) if f.name == field), None)
-
-
-def _get_field(
-    field: str, instance: Element | None = None
-) -> tuple[Element, dataclasses.Field]:
-    instance = instance or current()
-    ret = _try_get_field(field, instance)
-    if ret is None and isinstance(instance, Workflow):
-        ret = _try_get_field(field, Job)
-        assert ret, f"field {field} not found in current instance (Workflow or Job)"
-        return _ctx.auto_job(field), ret
-    if not ret:
-        _ctx.error(
-            f"`{field}` is not a {type(instance).__name__.lower()} field",
-        )
-        if isinstance(instance, Job) and _ctx.auto_job_reason:
-            _ctx.errors[
-                -1
-            ].message += f", and an implicit job was created when setting `{_ctx.auto_job_reason}`"
-    return instance, ret
-
-
 def _merge[T](field: str, lhs: T | None, rhs: T | None, level: int = 0) -> T | None:
     try:
         match (lhs, rhs):
