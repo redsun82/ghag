@@ -213,6 +213,14 @@ def test_unavailable_job_contexts(error):
 
 
 @expect_errors
+def test_unavailable_container(error):
+    @job
+    def j1():
+        error("`container` not available in `job`")
+        step(job.container.id)
+
+
+@expect_errors
 def test_unavailable_matrix_values(error):
     @job
     def j1():

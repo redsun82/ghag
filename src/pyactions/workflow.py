@@ -303,6 +303,7 @@ class Credentials(Element):
 
 class Container(Element):
     image: Value[str]
+    _: dataclasses.KW_ONLY
     credentials: Credentials
     env: dict[str, Value[str]]
     ports: list[Value[int]]

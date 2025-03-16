@@ -357,10 +357,10 @@ class _JobUpdaters(_Updaters):
     needs = _Updater(list)
     steps = _Updater(list)
 
-    class ContainerUpdater(_Updater):
-        def __call__(self, value: str | Expr) -> typing.Self:
-            self.image(value)
-            return self
+    class ContainerUpdater[**P, F](_Updater[P, F]):
+        def _apply(self, *args: P.args, **kwargs: P.kwargs) -> F | None:
+            job._activate("container")
+            return super()._apply(*args, **kwargs)
 
         image = _Updater(str)
         credentials = _Updater(Credentials)
@@ -542,7 +542,7 @@ def _interpret_job(
         )
 
 
-job = _ctx.job_contexts.job
+job: _Context.JobContexts.Job = _ctx.job_contexts.job
 
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on

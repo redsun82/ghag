@@ -691,6 +691,8 @@ jobs:
       ports: [80]
       volumes: [my_docker_volume:/volume_mount]
       options: [--cpus 1]
+    steps:
+    - run: echo ${{ job.container.id }}
   j2:
     runs-on: ubuntu-latest
     container:
@@ -703,6 +705,7 @@ def test_container():
     def j1():
         container("node:18").env(NODE_ENV="development").ports([80])
         container.volumes(["my_docker_volume:/volume_mount"]).options(["--cpus 1"])
+        run(f"echo {job.container.id}")
 
     @job
     def j2():
