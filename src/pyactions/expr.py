@@ -33,7 +33,7 @@ _ops = {op: i for i, op in enumerate(_ops)}
 
 class Expr(element.Element):
     _value: str
-    _ = dataclasses.KW_ONLY
+    _: dataclasses.KW_ONLY
     _op_index: int = 0
 
     _field_access_error: str | None = ""

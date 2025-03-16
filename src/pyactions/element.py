@@ -4,7 +4,6 @@ import typing
 
 @dataclasses.dataclass
 class Element:
-    _: dataclasses.KW_ONLY
     _preserve_underscores: typing.ClassVar[bool] = False
 
     @classmethod
@@ -25,16 +24,18 @@ class Element:
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        for f in cls.__annotations__:
+        for f, a in cls.__annotations__.items():
             # add `None` as default value for all fields not having a default already
-            if not hasattr(cls, f):
+            if a is not dataclasses.KW_ONLY and not hasattr(cls, f):
                 ty = cls.__annotations__[f]
                 cls.__annotations__[f] |= None
                 setattr(
                     cls,
                     f,
-                    dataclasses.field(default=None, metadata={"original_type": ty}),
+                    None,
                 )
+        if dataclasses.KW_ONLY not in cls.__annotations__.values():
+            cls.__annotations__ = {"_": dataclasses.KW_ONLY} | cls.__annotations__
 
         def __repr__(self):
             args = ", ".join(

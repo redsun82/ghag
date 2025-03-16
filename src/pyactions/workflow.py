@@ -15,6 +15,7 @@ class Input[T](Element):
     ]
 
     description: str
+    _: dataclasses.KW_ONLY
     required: bool = False
     default: T
     type: Type = "string"
@@ -55,6 +56,7 @@ class InputProxy(Expr):
 
 class Secret(Element):
     description: str
+    _: dataclasses.KW_ONLY
     required: bool = False
 
 
