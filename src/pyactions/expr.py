@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import typing
 from typing import Self, Any
+import copy
 
 from . import element
 
@@ -38,6 +39,25 @@ class Expr(element.Element):
 
     _field_access_error: str | None = ""
     _error: str | typing.Callable[[], str]
+
+    def __set_name__(self, owner: type, name: str):
+        self._value = self._value or name
+
+    @property
+    def _attribute_name(self) -> str:
+        return f"_f_{self._value}"
+
+    def __get__(self, instance: Self | None, owner: type) -> Self:
+        if instance is None:
+            return self
+        # not using `getattr` as `__getattr__` is special
+        ret = instance.__dict__.get(self._attribute_name)
+        if ret is None:
+            ret = copy.deepcopy(self)
+            if instance._value:
+                ret._value = f"{instance._value}.{self._value}"
+            setattr(instance, self._attribute_name, ret)
+        return ret
 
     def _emit_error(self) -> typing.Self | None:
         if self._error is None:
@@ -129,6 +149,8 @@ class Expr(element.Element):
         )
 
     def __getattr__(self, key: str) -> typing.Self:
+        if key.startswith("_"):
+            raise AttributeError(key)
         if self._emit_error():
             return self
         if self._field_access_error is not None:
@@ -201,7 +223,9 @@ class Context(Expr):
 
 
 class MapContext[T](Context):
-    def __init__(self, value: str, fieldcls: type[T] = Expr, *args: Any, **kwargs: Any):
+    def __init__(
+        self, value: str = None, fieldcls: type[T] = Expr, *args: Any, **kwargs: Any
+    ):
         super().__init__(value, **kwargs)
         self._fieldcls = fieldcls
         self._args = args
@@ -215,6 +239,8 @@ class MapContext[T](Context):
         self._free = False
 
     def __getattr__(self, item) -> T:
+        if item.startswith("_"):
+            raise AttributeError(item)
         if self._free:
             self._activate(item)
             return getattr(self, item)

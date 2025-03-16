@@ -8,7 +8,7 @@ import threading
 import pathlib
 
 from .element import Element
-from .expr import Value, Expr, on_error, Context, Field, MapContext
+from .expr import Expr, on_error, Context, MapContext
 from . import expr, workflow, element
 from .workflow import *
 
@@ -46,20 +46,11 @@ def _get_user_frame_info() -> inspect.Traceback:
 
 
 class _StepContext(Context):
-    outputs = Field(
-        MapContext,
+    outputs = MapContext(
         _field_access_error=", use `returns()` on the corresponding step to declare them",
     )
-    result = Field()
-    outcome = Field()
-
-
-class _StepsContext(MapContext[_StepContext]):
-    def __init__(self):
-        super().__init__(
-            "steps",
-            _StepContext,
-        )
+    result = Expr()
+    outcome = Expr()
 
 
 @dataclass
@@ -71,7 +62,7 @@ class _Context(threading.local):
     current_job_id: str | None = None
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
-    steps: _StepsContext = field(
+    steps: MapContext[_StepContext] = field(
         default_factory=lambda: MapContext(
             "steps",
             _StepContext,
@@ -391,7 +382,7 @@ class GenerationError(Exception):
         self.errors = errors
 
     def __str__(self):
-        return "\n".join(map(str, self.errors))
+        return "\n" + "\n".join(map(str, self.errors))
 
 
 @dataclass

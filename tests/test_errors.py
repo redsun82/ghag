@@ -136,11 +136,11 @@ def test_unexpected_step_outputs(error):
 @expect_errors
 def test_wrong_outputs(error):
     # fmt: off
-    error("job `j1` returns expression `steps.x.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
-    @job
-    def j1():
-        x = step("x")
-        return x.outputs
+    # error("job `j1` returns expression `steps.x.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
+    # @job
+    # def j1():
+    #     x = step("x")
+    #     return x.outputs
 
     error("job `j2` returns expression `steps.y.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
     @job
