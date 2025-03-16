@@ -8,7 +8,7 @@ import threading
 import pathlib
 
 from .element import Element
-from .expr import Expr, on_error, Context, MapContext
+from .expr import Expr, on_error, Context, MapContext, ContextGroup
 from . import expr, workflow, element
 from .workflow import *
 
@@ -45,14 +45,6 @@ def _get_user_frame_info() -> inspect.Traceback:
     return inspect.getframeinfo(_get_user_frame())
 
 
-class _StepContext(Context):
-    outputs = MapContext(
-        _field_access_error=", use `returns()` on the corresponding step to declare them",
-    )
-    result = Expr()
-    outcome = Expr()
-
-
 @dataclass
 class _Context(threading.local):
 
@@ -62,21 +54,29 @@ class _Context(threading.local):
     current_job_id: str | None = None
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
-    steps: MapContext[_StepContext] = field(
-        default_factory=lambda: MapContext(
-            "steps",
-            _StepContext,
+
+    class JobContexts(ContextGroup):
+        class Step(Context):
+            outputs = MapContext(
+                _field_access_error=", use `returns()` on the corresponding step to declare them",
+            )
+            result = Expr()
+            outcome = Expr()
+
+        steps: MapContext[Step] = MapContext(
+            fieldcls=Step,
             _field_access_error=", no step has that `id`",
             _inactive_error="`steps` context is only available in a job",
         )
-    )
-    matrix: MapContext = field(
-        default_factory=lambda: MapContext(
-            "matrix",
+        matrix: MapContext[Expr] = MapContext(
             _field_access_error=", it must be included with `strategy.matrix()`",
             _inactive_error="`matrix` context is only available in a matrix job",
         )
-    )
+
+        def activate(self):
+            steps._activate()
+
+    job_contexts = JobContexts()
 
     def reset(self):
         self.reset_job()
@@ -88,8 +88,7 @@ class _Context(threading.local):
     def reset_job(self, job: Job | None = None, job_id: str | None = None):
         self.current_job = job
         self.current_job_id = job_id
-        self.steps._clear()
-        self.matrix._clear()
+        self.job_contexts.clear()
 
     def empty(self) -> bool:
         return (
@@ -134,10 +133,9 @@ class _Context(threading.local):
     def job(self, id: str) -> typing.Generator[Job, None, None]:
         previous_job = self.current_job
         previous_job_id = self.current_job_id
-        job = self.current_job = Job()
-        self.current_job_id = id
-        self.steps._activate()
-        self.matrix._clear()
+        job = Job()
+        self.reset_job(job, id)
+        self.job_contexts.activate()
         try:
             yield job
             if self.auto_job_reason:
@@ -160,11 +158,12 @@ class _Context(threading.local):
         wf = self.current_workflow
         job = Job(name=wf.name)
         if not wf.jobs:
-            wf.jobs[current_workflow_id()] = job
-            _ctx.current_job = job
-            _ctx.auto_job_reason = reason
+            wf.jobs[self.current_workflow_id] = job
+            self.reset_job(job, self.current_workflow_id)
+            self.auto_job_reason = reason
+            self.job_contexts.activate()
         else:
-            _ctx.error(
+            self.error(
                 f"`{reason}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
             )
         return job
@@ -521,8 +520,8 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 
 strategy = _JobUpdaters.strategy
 
-steps = _ctx.steps
-matrix = _ctx.matrix
+steps = _ctx.job_contexts.steps
+matrix = _ctx.job_contexts.matrix
 
 
 @dataclass

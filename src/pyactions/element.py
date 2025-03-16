@@ -1,6 +1,8 @@
 import dataclasses
 import typing
 
+from .expr import Expr
+
 
 @dataclasses.dataclass
 class Element:
@@ -55,6 +57,8 @@ def asobj(o: typing.Any):
     match o:
         case Element() as e:
             return e.asdict()
+        case Expr() as e:
+            return str(e)
         case dict() as d:
             return {k: asobj(v) for k, v in d.items() if v is not None}
         case list() as l:

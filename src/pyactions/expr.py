@@ -4,12 +4,11 @@ import typing
 from typing import Self, Any
 import copy
 
-from . import element
-
 __all__ = [
     "Expr",
     "Context",
     "MapContext",
+    "ContextGroup",
     "Inactive",
     "on_error",
 ]
@@ -31,13 +30,18 @@ _ops = [
 _ops = {op: i for i, op in enumerate(_ops)}
 
 
-class Expr(element.Element):
-    _value: str
+@dataclasses.dataclass
+class _ContextMixin:
+    _fields: dict[str, "Expr"] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class Expr:
+    _value: str | None = None
     _: dataclasses.KW_ONLY
     _op_index: int = 0
-
     _field_access_error: str | None = ""
-    _error: str | typing.Callable[[], str]
+    _error: str | typing.Callable[[], str] | None = None
 
     def __set_name__(self, owner: type, name: str):
         self._value = self._value or name
@@ -46,15 +50,16 @@ class Expr(element.Element):
     def _attribute_name(self) -> str:
         return f"_f_{self._value}"
 
-    def __get__(self, instance: typing.Self | None, owner: type) -> Self:
+    def __get__(self, instance: _ContextMixin | None, owner: type) -> Self:
         if instance is None:
             return self
-        assert isinstance(instance, Context)
+        assert isinstance(instance, _ContextMixin)
         ret = instance._fields.get(self._value)
         if ret is None:
             ret = copy.deepcopy(self)
-            if instance._value:
-                ret._value = f"{instance._value}.{self._value}"
+            parent = getattr(instance, "_value", None)
+            if parent:
+                ret._value = f"{parent}.{self._value}"
             instance._fields[self._value] = ret
         return ret
 
@@ -68,9 +73,6 @@ class Expr(element.Element):
 
     def _clear(self):
         pass
-
-    def asdict(self) -> typing.Any:
-        return str(self)
 
     def __str__(self) -> str:
         if self._emit_error():
@@ -167,29 +169,9 @@ class Expr(element.Element):
         return True
 
 
-type Value[T] = Expr | T
-
-
-def _default_on_error(message: str) -> None:
-    raise ValueError(message)
-
-
-_current_on_error = _default_on_error
-
-
-@contextlib.contextmanager
-def on_error(handler: typing.Callable[[str], typing.Any]):
-    global _current_on_error
-    _current_on_error = handler
-    try:
-        yield
-    finally:
-        _current_on_error = _default_on_error
-
-
-class Context(Expr):
-    _fields: dict[str, Expr] = dataclasses.field(default_factory=dict)
-    _inactive_error: str
+@dataclasses.dataclass
+class Context(_ContextMixin, Expr):
+    _inactive_error: str | None = None
 
     def __post_init__(self):
         self._error = self._inactive_error
@@ -213,11 +195,13 @@ class Context(Expr):
         return self._emit_error() or Expr(f"{self._value}.*")
 
 
+@dataclasses.dataclass
 class MapContext[T](Context):
     def __init__(
         self, value: str = None, fieldcls: type[T] = Expr, *args: Any, **kwargs: Any
     ):
         super().__init__(value, **kwargs)
+        self._fields = {}
         self._fieldcls = fieldcls
         self._args = args
         self._free = False
@@ -257,6 +241,22 @@ class MapContext[T](Context):
         )
 
 
+@dataclasses.dataclass
+class ContextGroup(_ContextMixin):
+    def __post_init__(self):
+        # trigger instantiation of all descriptors
+        for a in type(self).__dict__:
+            _ = getattr(self, a)
+
+    def clear(self):
+        for f in self._fields.values():
+            f._clear()
+
+    def activate(self):
+        for f in self._fields.values():
+            f._activate()
+
+
 class Inactive[T]:
     def __init__(self, cls: type[T] = Expr, *args: Any, **kwargs: Any):
         assert issubclass(cls, Expr)
@@ -265,7 +265,7 @@ class Inactive[T]:
     def __set_name__(self, owner: type[Context], name: str):
         self.descriptor.__set_name__(owner, name)
 
-    def __get__(self, instance: Context, owner: type) -> T:
+    def __get__(self, instance: _ContextMixin, owner: type) -> T:
         if instance is None:
             return self
         assert isinstance(instance, Context)
@@ -275,6 +275,26 @@ class Inactive[T]:
 
     def activate(self, instance: Context):
         self.descriptor.__get__(instance, type(instance))
+
+
+type Value[T] = Expr | T
+
+
+def _default_on_error(message: str) -> None:
+    raise ValueError(message)
+
+
+_current_on_error = _default_on_error
+
+
+@contextlib.contextmanager
+def on_error(handler: typing.Callable[[str], typing.Any]):
+    global _current_on_error
+    _current_on_error = handler
+    try:
+        yield
+    finally:
+        _current_on_error = _default_on_error
 
 
 def expr_function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
