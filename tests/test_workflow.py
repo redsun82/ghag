@@ -712,3 +712,27 @@ def test_container():
         container.image("ghcr.io/owner/image").credentials(
             username="foo", password="baz"
         )
+
+
+@expect(
+    """
+on: {}
+jobs:
+  test_services:
+    runs-on: ubuntu-latest
+    services:
+      nginx:
+        image: nginx:latest
+        ports: [8080:80]
+      redis:
+        ports: [6379/tcp]
+    steps:
+    - run: echo ${{ job.services.nginx.id }}
+    - run: echo ${{ job.services.redis.ports[6379] }}
+"""
+)
+def test_services():
+    service("nginx", image="nginx:latest", ports=["8080:80"])
+    service("redis", ports=["6379/tcp"])
+    run(f"echo {job.services.nginx.id}")
+    run(f"echo {job.services.redis.ports[6379]}")

@@ -81,7 +81,7 @@ class _Context(threading.local):
             class Service(Container):
                 ports = Expr(_field_access_error=None)
 
-            services = Inactive(MapContext, Service)
+            services = Inactive(MapContext, fieldcls=Service)
             status = Expr()
 
             # we want `job` to be both the context and the decorator to describe jobs
@@ -371,6 +371,8 @@ class _JobUpdaters(_Updaters):
 
     container = ContainerUpdater(Container)
 
+    service = _MapUpdater(Container)
+
 
 _ctx = _Context()
 
@@ -562,6 +564,13 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 
 strategy = _JobUpdaters.strategy
 container = _JobUpdaters.container
+
+
+def service(key: str, *args, **kwargs):
+    _JobUpdaters.service(key, *args, **kwargs)
+    job._activate("services")
+    job.services._activate(key)
+
 
 steps = _ctx.job_contexts.steps
 matrix = _ctx.job_contexts.matrix

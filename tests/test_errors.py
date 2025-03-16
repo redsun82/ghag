@@ -221,6 +221,20 @@ def test_unavailable_container(error):
 
 
 @expect_errors
+def test_unavailable_service(error):
+    @job
+    def j1():
+        error("`services` not available in `job`")
+        step(job.services)
+
+    @job
+    def j2():
+        service("a")
+        error("`b` not available in `job.services`")
+        step(job.services.b)
+
+
+@expect_errors
 def test_unavailable_matrix_values(error):
     @job
     def j1():

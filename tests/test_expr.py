@@ -117,7 +117,7 @@ def test_map_context():
         class B(Context):
             c = Expr()
 
-        b = MapContext(B)
+        b = MapContext(fieldcls=B)
 
     x = X("x")
 

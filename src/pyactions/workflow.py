@@ -316,6 +316,7 @@ class Job(Element):
     needs: list[str]
     runs_on: str = "ubuntu-latest"
     container: Container
+    services: dict[str, Container]
     outputs: dict[str, Value[str]]
     strategy: Strategy
     env: dict[str, Value[str]]
