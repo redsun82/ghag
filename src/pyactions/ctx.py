@@ -7,7 +7,6 @@ import dataclasses
 import threading
 import pathlib
 
-from .element import Element
 from .expr import Expr, on_error, Context, MapContext, ContextGroup
 from . import expr, workflow, element
 from .workflow import *
@@ -47,7 +46,6 @@ def _get_user_frame_info() -> inspect.Traceback:
 
 @dataclass
 class _Context(threading.local):
-
     current_workflow: Workflow | None = None
     current_job: Job | None = None
     current_workflow_id: str | None = None
@@ -73,8 +71,36 @@ class _Context(threading.local):
             _inactive_error="`matrix` context is only available in a matrix job",
         )
 
+        class Job(Context):
+            class Container(Context):
+                id = Expr()
+                network = Expr()
+
+            container = Container()
+
+            class Service(Container):
+                ports = Expr(_field_access_error=None)
+
+            services = MapContext(Service)
+            status = Expr()
+
+            # we want `job` to be both the context and the decorator to describe jobs
+            # forward the decoration usage
+            def __call__(
+                self,
+                func: typing.Union["JobCall", None] = None,
+                *,
+                id: str | None = None,
+            ) -> typing.Callable[["JobCall"], Expr] | Expr:
+                return _interpret_job(func, id=id)
+
+        job = Job(
+            _inactive_error="`job` context is only available in a job",
+        )
+
         def activate(self):
-            steps._activate()
+            self.steps._activate()
+            self.job._activate()
 
     job_contexts = JobContexts()
 
@@ -487,11 +513,11 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     return ret
 
 
-def job(
+def _interpret_job(
     func: JobCall | None = None, *, id: str | None = None
 ) -> typing.Callable[[JobCall], Expr] | Expr:
     if func is None:
-        return lambda func: job(func, id=id)
+        return lambda func: _interpret_job(func, id=id)
     id = id or func.__name__
     with _ctx.job(id) as j:
         j.name = func.__doc__
@@ -501,6 +527,8 @@ def job(
             _error=lambda: f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
         )
 
+
+job = _ctx.job_contexts.job
 
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
@@ -683,4 +711,5 @@ step = _StepUpdater()
 run = step.run
 use = step.use
 
+always = expr.expr_function("always", 0)
 fromJson = expr.expr_function("fromJson")

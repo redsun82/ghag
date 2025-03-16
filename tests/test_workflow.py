@@ -660,3 +660,20 @@ def test_needs():
     def j3(j1, j2):
         run(j1)
         run(j2)
+
+
+@expect(
+    """
+on: {}
+jobs:
+  test_job_as_context:
+    runs-on: ubuntu-latest
+    steps:
+    - run: 'false'
+    - if: always()
+      run: echo ${{ job.status }}
+"""
+)
+def test_job_as_context():
+    run("false")
+    run(f"echo {job.status}").if_(always())

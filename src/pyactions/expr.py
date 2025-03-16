@@ -198,7 +198,7 @@ class Context(_ContextMixin, Expr):
 @dataclasses.dataclass
 class MapContext[T](Context):
     def __init__(
-        self, value: str = None, fieldcls: type[T] = Expr, *args: Any, **kwargs: Any
+        self, fieldcls: type[T] = Expr, value: str = None, *args: Any, **kwargs: Any
     ):
         super().__init__(value, **kwargs)
         self._fields = {}

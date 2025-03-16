@@ -117,7 +117,7 @@ def test_map_context():
         class B(Context):
             c = Expr()
 
-        b = MapContext(fieldcls=B)
+        b = MapContext(B)
 
     x = X("x")
 
@@ -150,7 +150,7 @@ def test_map_context():
 
 
 def test_free_map_context():
-    x = MapContext("x")
+    x = MapContext(value="x")
     x._activate_all()
     assert x._has("foo")
     assert str(x.foo) == "${{ x.foo }}"

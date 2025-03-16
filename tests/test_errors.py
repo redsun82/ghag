@@ -198,11 +198,13 @@ def test_wrong_job_needs(error):
 
 
 @expect_errors
-def test_unavailable_contexts(error):
+def test_unavailable_job_contexts(error):
     error("`matrix` context is only available in a matrix job")
     _ = str(matrix)
     error("`steps` context is only available in a job")
     _ = str(steps)
+    error("`job` context is only available in a job")
+    _ = str(job)
 
     @job
     def j():
