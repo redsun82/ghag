@@ -7,7 +7,7 @@ import dataclasses
 import threading
 import pathlib
 
-from .expr import Expr, on_error, Context, MapContext, ContextGroup
+from .expr import Expr, on_error, Context, MapContext, ContextGroup, Inactive
 from . import expr, workflow, element
 from .workflow import *
 
@@ -76,12 +76,12 @@ class _Context(threading.local):
                 id = Expr()
                 network = Expr()
 
-            container = Container()
+            container = Inactive(Container)
 
             class Service(Container):
                 ports = Expr(_field_access_error=None)
 
-            services = MapContext(Service)
+            services = Inactive(MapContext, Service)
             status = Expr()
 
             # we want `job` to be both the context and the decorator to describe jobs
@@ -357,6 +357,20 @@ class _JobUpdaters(_Updaters):
     needs = _Updater(list)
     steps = _Updater(list)
 
+    class ContainerUpdater(_Updater):
+        def __call__(self, value: str | Expr) -> typing.Self:
+            self.image(value)
+            return self
+
+        image = _Updater(str)
+        credentials = _Updater(Credentials)
+        env = _Updater(dict)
+        ports = _Updater(list)
+        volumes = _Updater(list)
+        options = _Updater(list)
+
+    container = ContainerUpdater(Container)
+
 
 _ctx = _Context()
 
@@ -547,6 +561,7 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 
 
 strategy = _JobUpdaters.strategy
+container = _JobUpdaters.container
 
 steps = _ctx.job_contexts.steps
 matrix = _ctx.job_contexts.matrix

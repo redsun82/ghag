@@ -677,3 +677,35 @@ jobs:
 def test_job_as_context():
     run("false")
     run(f"echo {job.status}").if_(always())
+
+
+@expect(
+    """
+on: {}
+jobs:
+  j1:
+    runs-on: ubuntu-latest
+    container:
+      image: node:18
+      env: {NODE_ENV: development}
+      ports: [80]
+      volumes: [my_docker_volume:/volume_mount]
+      options: [--cpus 1]
+  j2:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/owner/image
+      credentials: {username: foo, password: baz}
+"""
+)
+def test_container():
+    @job
+    def j1():
+        container("node:18").env(NODE_ENV="development").ports([80])
+        container.volumes(["my_docker_volume:/volume_mount"]).options(["--cpus 1"])
+
+    @job
+    def j2():
+        container.image("ghcr.io/owner/image").credentials(
+            username="foo", password="baz"
+        )

@@ -296,10 +296,25 @@ class Strategy(Element):
     max_parallel: Value[int]
 
 
+class Credentials(Element):
+    username: Value[str]
+    password: Value[str]
+
+
+class Container(Element):
+    image: Value[str]
+    credentials: Credentials
+    env: dict[str, Value[str]]
+    ports: list[Value[int]]
+    volumes: list[Value[str]]
+    options: list[Value[str]]
+
+
 class Job(Element):
     name: str
     needs: list[str]
     runs_on: str = "ubuntu-latest"
+    container: Container
     outputs: dict[str, Value[str]]
     strategy: Strategy
     env: dict[str, Value[str]]
