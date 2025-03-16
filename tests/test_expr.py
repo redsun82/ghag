@@ -66,15 +66,15 @@ def test_nested_context():
 
 def test_potential_fields():
     class X(Context):
-        a = PotentialField()
+        a = Inactive()
 
         class Y(Context):
-            b = PotentialField()
+            b = Inactive()
 
-        y = PotentialField(Y)
+        y = Inactive(Y)
 
         class Z(Context):
-            c = PotentialField()
+            c = Inactive()
 
         z = Z()
 
@@ -110,7 +110,6 @@ def test_potential_fields():
         _ = x.y.b
 
 
-@pytest.mark.xfail(reason="TODO")
 def test_map_context():
     class X(Context):
         a = MapContext()

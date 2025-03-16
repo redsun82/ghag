@@ -10,8 +10,7 @@ __all__ = [
     "Expr",
     "Context",
     "MapContext",
-    "Field",
-    "PotentialField",
+    "Inactive",
     "on_error",
 ]
 
@@ -47,16 +46,16 @@ class Expr(element.Element):
     def _attribute_name(self) -> str:
         return f"_f_{self._value}"
 
-    def __get__(self, instance: Self | None, owner: type) -> Self:
+    def __get__(self, instance: typing.Self | None, owner: type) -> Self:
         if instance is None:
             return self
-        # not using `getattr` as `__getattr__` is special
-        ret = instance.__dict__.get(self._attribute_name)
+        assert isinstance(instance, Context)
+        ret = instance._fields.get(self._value)
         if ret is None:
             ret = copy.deepcopy(self)
             if instance._value:
                 ret._value = f"{instance._value}.{self._value}"
-            setattr(instance, self._attribute_name, ret)
+            instance._fields[self._value] = ret
         return ret
 
     def _emit_error(self) -> typing.Self | None:
@@ -189,7 +188,7 @@ def on_error(handler: typing.Callable[[str], typing.Any]):
 
 
 class Context(Expr):
-    _fields: set[str] = dataclasses.field(default_factory=set)
+    _fields: dict[str, Expr] = dataclasses.field(default_factory=dict)
     _inactive_error: str
 
     def __post_init__(self):
@@ -197,25 +196,17 @@ class Context(Expr):
 
     def _clear(self):
         self._error = self._inactive_error
-        for f in self._fields:
-            getattr(self, f)._clear()
-            descriptor = getattr(type(self), f, None)
-            if descriptor:
-                descriptor.clear(self)
+        self._fields.clear()
 
     def _activate(self, field: str | None = None):
         cls = type(self)
         self._error = None
         if field:
             match getattr(cls, field, None):
+                case Inactive() as f:
+                    f.activate(self)
                 case None:
                     raise AttributeError(f"{cls.__name__} has no field `{field}`")
-                case PotentialField() as f:
-                    f.activate(self)
-                case _:
-                    raise AttributeError(
-                        f"{cls.__name__} field `{field}` is not a PotentialField"
-                    )
 
     @property
     def ALL(self) -> Expr:
@@ -233,9 +224,6 @@ class MapContext[T](Context):
 
     def _clear(self):
         super()._clear()
-        for f in self._fields:
-            delattr(self, f)
-        self._fields = set()
         self._free = False
 
     def __getattr__(self, item) -> T:
@@ -243,18 +231,16 @@ class MapContext[T](Context):
             raise AttributeError(item)
         if self._free:
             self._activate(item)
-            return getattr(self, item)
-        return super().__getattr__(item)
+        try:
+            return self._fields[item]
+        except KeyError:
+            return super().__getattr__(item)
 
     def _activate(self, field: str | None = None):
         super()._activate()
         if field:
-            self._fields.add(field)
-            setattr(
-                self,
-                field,
-                self._fieldcls(f"{self._value}.{field}", *self._args),
-            )
+            value = self._fieldcls(f"{self._value}.{field}", *self._args)
+            self._fields[field] = value
 
     def _activate_all(self):
         self._activate()
@@ -271,49 +257,24 @@ class MapContext[T](Context):
         )
 
 
-class Field[T]:
+class Inactive[T]:
     def __init__(self, cls: type[T] = Expr, *args: Any, **kwargs: Any):
-        self.cls = cls
-        self.args = args
-        self.kwargs = kwargs
+        assert issubclass(cls, Expr)
+        self.descriptor = cls(*args, **kwargs)
 
     def __set_name__(self, owner: type[Context], name: str):
-        self.name = name
+        self.descriptor.__set_name__(owner, name)
 
-    @property
-    def priv_name(self) -> str:
-        return f"_f_{self.name}"
-
-    def __get__(self, instance: Expr, owner: type) -> T:
+    def __get__(self, instance: Context, owner: type) -> T:
         if instance is None:
             return self
-        instance._fields.add(self.name)
-        self.activate(instance)
-        return getattr(instance, self.priv_name)
+        assert isinstance(instance, Context)
+        if self.descriptor._value not in instance._fields:
+            return instance.__getattr__(self.descriptor._value)
+        return instance._fields[self.descriptor._value]
 
-    def activate(self, instance: Expr):
-        if self.priv_name not in instance.__dict__:
-            setattr(
-                instance,
-                self.priv_name,
-                self.cls(
-                    f"{instance._value}.{self.name}",
-                    *self.args,
-                    **self.kwargs,
-                ),
-            )
-
-    def clear(self, instance: Expr):
-        instance.__dict__.pop(self.priv_name, None)
-
-
-class PotentialField[T](Field[T]):
-    def __get__(self, instance: Expr, owner: type[Context]) -> T:
-        if instance is not None and self.priv_name not in instance.__dict__:
-            return ~Expr(
-                _error=f"`{self.name}` not available in `{instance._value}`{instance._field_access_error}",
-            )
-        return super().__get__(instance, owner)
+    def activate(self, instance: Context):
+        self.descriptor.__get__(instance, type(instance))
 
 
 def expr_function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
