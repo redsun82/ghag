@@ -80,6 +80,7 @@ def test_simple_context():
     assert instantiate(x) == "${{ x }}"
     assert instantiate(x.a) == "${{ x.a }}"
     assert instantiate(x.b) == "${{ x.b }}"
+    assert instantiate(x._) == "${{ x.* }}"
 
     error_handler = unittest.mock.Mock()
     with on_error(error_handler):
@@ -155,17 +156,20 @@ def test_map_context():
     assert instantiate(x.baz) == "${{ x.baz }}"
     assert instantiate(x.baz.foo) == "${{ x.baz.foo }}"
     assert instantiate(x.baz.bar) == "${{ x.baz.bar }}"
+    assert instantiate(x._.foo) == "${{ x.*.foo }}"
 
     error_handler = unittest.mock.Mock()
     with on_error(error_handler):
         _ = x.b.foo.whatever
         _ = x.baz.foo.whatever
         _ = x.baz.bar.whatever
+        _ = x._.whatever
         error_handler.assert_has_calls(
             [
                 unittest.mock.call("`whatever` not available in `x.b.foo`"),
                 unittest.mock.call("`whatever` not available in `x.baz.foo`"),
                 unittest.mock.call("`whatever` not available in `x.baz.bar`"),
+                unittest.mock.call("`whatever` not available in `x.*`"),
             ]
         )
 

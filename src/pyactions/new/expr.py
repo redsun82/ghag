@@ -101,6 +101,8 @@ class Expr(abc.ABC):
         return ItemExpr(self, self._coerce(key))
 
     def __getattr__(self, key: str) -> typing.Self:
+        if key == "_":
+            return DotExpr(self, "*")
         if key.startswith("_"):
             raise AttributeError(key)
         return DotExpr(self, key)
@@ -163,6 +165,10 @@ class RefExpr(Expr):
         yield self._segments
 
     def __getattr__(self, name) -> Expr:
+        if name == "_":
+            if self._child_factory:
+                return self._child_factory("*")
+            return DotExpr(self, "*")
         if name.startswith("_"):
             raise AttributeError(name)
         if self._child_factory:
@@ -194,6 +200,10 @@ class _ContextDescriptor:
             else:
                 object.__setattr__(ret, d._name, d.__get__(ret))
         return ret
+
+
+class Mapping[T]:
+    def __getattr__(self, item) -> T: ...
 
 
 _op_precedence = (
