@@ -12,7 +12,7 @@ class Expr(abc.ABC):
     @property
     def _syntax(self) -> str: ...
 
-    def _get_refs(self) -> typing.Generator["RefExpr", None, None]:
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
         yield from ()
 
     @staticmethod
@@ -30,19 +30,20 @@ class Expr(abc.ABC):
                 return x
 
     @staticmethod
-    def _refs(x: typing.Any) -> typing.Generator["RefExpr", None, None]:
+    def _paths(x: typing.Any) -> typing.Generator[tuple[str, ...], None, None]:
         match x:
             case Expr() as e:
-                yield from e._get_refs()
+                yield from e._get_paths()
             case str() as s:
-                for m in re.finditer("\0(.*?)\0", s):
-                    yield RefExpr(*m[1].split("."))
+                for m in re.finditer("\0([a-z\\-_.]*)\0", s):
+                    yield tuple(m[1].split("."))
             case dict():
-                for v in x.values():
-                    yield from Expr._refs(v)
+                for k, v in x.items():
+                    yield from Expr._paths(k)
+                    yield from Expr._paths(v)
             case list():
                 for i in x:
-                    yield from Expr._refs(i)
+                    yield from Expr._paths(i)
             case _:
                 return
 
@@ -114,19 +115,28 @@ class Expr(abc.ABC):
 instantiate = Expr._instantiate
 
 
-def refs(x: typing.Any) -> set["RefExpr"]:
-    return set(Expr._refs(x))
+def paths(x: typing.Any) -> set[tuple[str, ...]]:
+    return set(Expr._paths(x))
 
 
 @dataclasses.dataclass(frozen=True, eq=False, unsafe_hash=True)
 class RefExpr(Expr):
     _segments: tuple[str, ...]
+    _child_factory: typing.Callable[[str], typing.Self] | None = None
+
     _store: typing.ClassVar[dict[tuple[str, ...], weakref.ReferenceType["RefExpr"]]] = (
         {}
     )
 
+    @classmethod
+    def _get(cls, *args: str) -> typing.Optional["RefExpr"]:
+        return cls._store.get(args, lambda: None)()
+
     def __new__(cls, *args: str, **kwargs: typing.Any):
-        ref = cls._store.get(args, lambda: None)()
+        if not args:
+            # descriptor!
+            return _ContextDescriptor(cls)
+        ref = cls._get(*args)
         if ref is not None:
             assert isinstance(
                 ref, cls
@@ -149,13 +159,41 @@ class RefExpr(Expr):
     def _syntax(self) -> str:
         return f"\0{self._path}\0"
 
-    def _get_refs(self) -> typing.Generator["RefExpr", None, None]:
-        yield self
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield self._segments
 
-    def __getattr__(self, item):
-        if item.startswith("_"):
-            raise AttributeError(item)
-        return RefExpr(*self._segments, item)
+    def __getattr__(self, name) -> Expr:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if self._child_factory:
+            return self._child_factory(name)
+        return ~ErrorExpr(f"`{name}` not available in `{self._path}`")
+
+
+class _ContextDescriptor:
+    def __init__(self, original_cls: typing.Any, name: str = None):
+        self._original_cls = original_cls
+        self._name = name
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def __get__(self, instance: typing.Optional["RefExpr"], owner: typing.Any = None):
+        if instance is None:
+            ret = RefExpr(self._name)
+        else:
+            ret = RefExpr(*instance._segments, self._name)
+        for k, d in self._original_cls.__dict__.items():
+            if not isinstance(d, _ContextDescriptor):
+                continue
+            if k == "_":
+                child_factory = lambda key, d=d: _ContextDescriptor(
+                    d._original_cls, key
+                ).__get__(ret)
+                object.__setattr__(ret, "_child_factory", child_factory)
+            else:
+                object.__setattr__(ret, d._name, d.__get__(ret))
+        return ret
 
 
 _op_precedence = (
@@ -193,9 +231,9 @@ class BinOpExpr(Expr):
     def _syntax(self) -> str:
         return f"{self._operand_from(self._left)} {self._op} {self._operand_from(self._right)}"
 
-    def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self._left._get_refs()
-        yield from self._right._get_refs()
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._left._get_paths()
+        yield from self._right._get_paths()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -210,8 +248,8 @@ class NotExpr(Expr):
     def _syntax(self) -> str:
         return f"!{self._operand_from(self._expr)}"
 
-    def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self._expr._get_refs()
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._expr._get_paths()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -227,9 +265,9 @@ class ItemExpr(Expr):
     def _syntax(self) -> str:
         return f"{self._operand_from(self._expr)}[{self._index._syntax}]"
 
-    def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self._expr._get_refs()
-        yield from self._index._get_refs()
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._expr._get_paths()
+        yield from self._index._get_paths()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -241,8 +279,8 @@ class DotExpr(Expr):
     def _syntax(self) -> str:
         return f"{self._operand_from(self._expr)}.{self._attr}"
 
-    def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self._expr._get_refs()
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._expr._get_paths()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -259,9 +297,9 @@ class CallExpr(Expr):
     def _syntax(self) -> str:
         return f"{self._function}({', '.join(a._syntax for a in self._args)})"
 
-    def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
         for a in self._args:
-            yield from a._get_refs()
+            yield from a._get_paths()
 
 
 @dataclasses.dataclass
@@ -328,30 +366,21 @@ class ErrorExpr(Expr):
 type ContextStructure = dict[str, typing.Optional["ContextStructure"]]
 
 
-class Context(RefExpr):
-    def __init__(self, *path: str, structure: ContextStructure | None = None):
-        super().__init__(*path)
-        object.__setattr__(self, "_child_factory", None)
-        if structure:
-            for f, d in structure.items():
-                child_factory = lambda key: Context(*path, key, structure=d)
-                if f == "*":
-                    object.__setattr__(self, "_child_factory", child_factory)
-                else:
-                    object.__setattr__(self, f, child_factory(f))
-
-    def __getattr__(self, name) -> Expr:
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if self._child_factory:
-            return self._child_factory(name)
-        return ~ErrorExpr(f"`{name}` not available in `{self._path}`")
-
-
-class Var:
+class Var[T]:
     def __set_name__(self, owner, name):
-        owner.fields[name] = self
-        self.name = name
+        if not hasattr(owner, "_fields"):
+            owner._fields = {}
+        owner._fields[name] = self
+        self._name = name
+
+    def _instantiate(self, *prefix: str) -> T:
+        ret = RigidRefExpr(*prefix, self._name)
+        for f, d in getattr(self, "_fields", {}).items():
+            object.__setattr__(ret, f, d._instantiate(*prefix, self._name))
+        return ret
+
+    def __get__(self, instance, owner) -> T:
+        return self._instantiate()
 
 
 def function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:

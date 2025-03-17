@@ -5,6 +5,12 @@ from src.pyactions.new.expr import *
 import unittest.mock
 
 
+@pytest.fixture(autouse=True)
+def reset_ref_expr_store():
+    # Reset the store before each test
+    RefExpr._store.clear()
+
+
 def test_ops():
     a = RefExpr("a")
     b = RefExpr("b")
@@ -22,38 +28,35 @@ def test_ops():
     )
 
 
-def test_ref_dot():
-    a = RefExpr("a")
-    dot = a.x.y
-    assert dot is RefExpr("a", "x", "y")
-    assert instantiate(dot) == "${{ a.x.y }}"
-
-
-def test_refs():
+def test_paths():
     a = RefExpr("a")
     b = RefExpr("b")
     c = RefExpr("c")
 
-    assert refs(a) == {a}
-    assert refs(a | (b & c)) == {a, b, c}
-    assert refs(~(a | b)) == {a, b}
-    assert refs(a[b][0]) == {a, b}
+    assert paths(a) == {("a",)}
+    assert paths(a | (b & c)) == {("a",), ("b",), ("c",)}
+    assert paths(~(a | b) & a) == {("a",), ("b",)}
+    assert paths(a[b][0]) == {("a",), ("b",)}
 
 
-def test_refs_on_strings():
+def test_paths_on_strings():
     a = RefExpr("a")
     b = RefExpr("b")
     c = RefExpr("c")
 
-    assert refs(f"-- {a} __ {b} || {c} >>") == {a, b, c}
-    assert refs(
+    assert paths(f"-- {a} __ {b} || {c} >>") == {("a",), ("b",), ("c",)}
+    assert paths(
         {
             "FOO": f"/{a}",
-            "BAR": f"/{a}/{b}",
-            "BAZ": c,
+            f"<{b}>": f"/{a}",
+            "BAZ": [c],
         }
-    ) == {a, b, c}
-    assert refs([f"<{a}>", f"<{b}, {a}>", c]) == {a, b, c}
+    ) == {("a",), ("b",), ("c",)}
+    assert paths([f"<{a}>", f"<{a}, {b}>", {"A": "a", "c": c}]) == {
+        ("a",),
+        ("b",),
+        ("c",),
+    }
 
 
 def test_no_bool():
@@ -65,13 +68,14 @@ def test_no_bool():
 
 
 def test_simple_context():
-    x = Context(
-        "x",
-        structure={
-            "a": None,
-            "b": None,
-        },
-    )
+    class Contexts:
+        class X(RefExpr):
+            a = RefExpr()
+            b = RefExpr()
+
+        x = X()
+
+    x = Contexts.x
 
     assert instantiate(x) == "${{ x }}"
     assert instantiate(x.a) == "${{ x.a }}"
@@ -90,17 +94,20 @@ def test_simple_context():
 
 
 def test_nested_context():
-    x = Context(
-        "x",
-        structure={
-            "a": None,
-            "b": None,
-            "y": {
-                "c": None,
-                "d": None,
-            },
-        },
-    )
+    class Contexts:
+        class X(RefExpr):
+            a = RefExpr()
+            b = RefExpr()
+
+            class Y(RefExpr):
+                c = RefExpr()
+                d = RefExpr()
+
+            y = Y()
+
+        x = X()
+
+    x = Contexts.x
 
     assert instantiate(x.a) == "${{ x.a }}"
     assert instantiate(x.b) == "${{ x.b }}"
@@ -122,21 +129,24 @@ def test_nested_context():
 
 
 def test_map_context():
-    x = Context(
-        "x",
-        structure={
-            "a": None,
-            "b": {
-                "*": None,
-            },
-            "*": {
-                "foo": None,
-                "bar": {
-                    "baz": None,
-                },
-            },
-        },
-    )
+    class Contexts:
+        class X(RefExpr):
+            a = RefExpr()
+
+            class B(RefExpr):
+                _ = RefExpr()
+
+            b = B()
+
+            class Y(RefExpr):
+                foo = RefExpr()
+                bar = RefExpr()
+
+            _ = Y()
+
+        x = X()
+
+    x = Contexts.x
 
     assert instantiate(x) == "${{ x }}"
     assert instantiate(x.a) == "${{ x.a }}"
@@ -145,7 +155,6 @@ def test_map_context():
     assert instantiate(x.baz) == "${{ x.baz }}"
     assert instantiate(x.baz.foo) == "${{ x.baz.foo }}"
     assert instantiate(x.baz.bar) == "${{ x.baz.bar }}"
-    assert instantiate(x.baz.bar.baz) == "${{ x.baz.bar.baz }}"
 
     error_handler = unittest.mock.Mock()
     with on_error(error_handler):
@@ -182,7 +191,7 @@ def test_functions():
             error_handler.assert_called_once_with(expected_error)
             assert instantiate(call) == f"${{{{ error('{expected_error}') }}}}"
 
-    assert refs(f(1, x, "s's")) == {x}
+    assert paths(f(1, x, "s's")) == {("x",)}
 
 
 def test_error_expr():
