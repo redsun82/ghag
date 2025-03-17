@@ -2,6 +2,7 @@ import dataclasses
 import abc
 import typing
 import weakref
+import contextlib
 
 
 class Expr(abc.ABC):
@@ -98,6 +99,12 @@ class Expr(abc.ABC):
         if key.startswith("_"):
             raise AttributeError(key)
         return DotExpr(self, key)
+
+    def __bool__(self):
+        _current_on_error(
+            "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
+        )
+        return True
 
 
 instantiate = Expr._instantiate
@@ -246,73 +253,97 @@ class CallExpr(Expr):
             yield from a._get_refs()
 
 
-@dataclasses.dataclass(frozen=True, eq=False)
+@dataclasses.dataclass
 class ErrorExpr(Expr):
     error: str | typing.Callable[[], str]
+    emitted: bool = False
 
     @property
-    def _error(self) -> "Expr":
+    def _error(self) -> str:
         e = self.error
         if callable(e):
-            e = e()
-        return LiteralExpr(e)
+            return e()
+        return e
+
+    def _emit(self) -> typing.Self:
+        if not self.emitted:
+            _current_on_error(self._error)
+            self.emitted = True
+        return self
 
     @property
     def _syntax(self) -> str:
-        return f"error({self._error._syntax})"
+        self._emit()
+        e: Expr = CallExpr("error", self._coerce(self._error))
+        return e._syntax
 
     def __and__(self, other: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __rand__(self, other: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __or__(self, other: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __ror__(self, other: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __invert__(self) -> Expr:
-        return self
+        return self._emit()
 
     def __eq__(self, other: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __ne__(self, other: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __le__(self, other) -> Expr:
-        return self
+        return self._emit()
 
     def __lt__(self, other) -> Expr:
-        return self
+        return self._emit()
 
     def __ge__(self, other) -> Expr:
-        return self
+        return self._emit()
 
     def __gt__(self, other) -> Expr:
-        return self
+        return self._emit()
 
     def __getitem__(self, key: typing.Any) -> Expr:
-        return self
+        return self._emit()
 
     def __getattr__(self, key: str) -> Expr:
         if key.startswith("_"):
             raise AttributeError(key)
-        return self
+        return self._emit()
 
 
 def function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
     def ret(*args: Expr, **kwargs: typing.Any) -> Expr:
         if kwargs:
-            return ErrorExpr(
+            return ~ErrorExpr(
                 f"unexpected keyword arguments to `{name}`, expected {nargs} positional arguments",
             )
         if len(args) != nargs:
-            return ErrorExpr(
+            return ~ErrorExpr(
                 f"wrong number of arguments to `{name}`, expected {nargs}, got {len(args)}"
             )
         return CallExpr(name, *(Expr._coerce(a) for a in args))
 
     return ret
+
+
+def _current_on_error(message: str) -> None:
+    raise ValueError(message)
+
+
+@contextlib.contextmanager
+def on_error(handler: typing.Callable[[str], typing.Any]):
+    global _current_on_error
+    old_error = _current_on_error
+    _current_on_error = handler
+    try:
+        yield
+    finally:
+        _current_on_error = old_error

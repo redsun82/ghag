@@ -184,30 +184,33 @@ def test_functions():
     f = function("foo", 3)
     x = RefExpr("x")
     assert instantiate(f(1, x, "s's")) == "${{ foo(1, x, 's''s') }}"
-    assert (
-        instantiate(f(1) & 1)
-        == "${{ error('wrong number of arguments to `foo`, expected 3, got 1') }}"
-    )
-    assert (
-        instantiate(f(1, 2, 3, 4) == 1)
-        == "${{ error('wrong number of arguments to `foo`, expected 3, got 4') }}"
-    )
-    assert (
-        instantiate(f(x=1, y=2, z=3)[0])
-        == "${{ error('unexpected keyword arguments to `foo`, expected 3 positional arguments') }}"
-    )
+    for wrong, expected_error in (
+        (lambda: f(1), "wrong number of arguments to `foo`, expected 3, got 1"),
+        (
+            lambda: f(1, 2, 3, 4),
+            "wrong number of arguments to `foo`, expected 3, got 4",
+        ),
+        (
+            lambda: f(x=1, y=2, z=3),
+            "unexpected keyword arguments to `foo`, expected 3 positional arguments",
+        ),
+    ):
+        error_handler = unittest.mock.Mock()
+        with on_error(error_handler):
+            call = wrong()
+            error_handler.assert_called_once_with(expected_error)
+            assert instantiate(call) == f"${{{{ error('{expected_error}') }}}}"
 
     assert refs(f(1, x, "s's")) == {x}
 
 
-#
-# def test_error_expr():
-#     e = unittest.mock.Mock()
-#     with on_error(e):
-#         ee = Expr(_error="an error")
-#         e.assert_not_called()
-#         _ = str(ee)
-#         e.assert_called_once_with("an error")
-#         e.reset_mock()
-#         _ = str(ee.x.y[0] & 3 | True == "x")
-#         e.assert_not_called()
+def test_error_expr():
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        e = ErrorExpr("an error")
+        error_handler.assert_not_called()
+        assert instantiate(e) == "${{ error('an error') }}"
+        error_handler.assert_called_once_with("an error")
+        error_handler.reset_mock()
+        assert instantiate(e.x.y[0] & 3 | True == "x") == "${{ error('an error') }}"
+        error_handler.assert_not_called()
