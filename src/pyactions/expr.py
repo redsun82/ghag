@@ -164,7 +164,7 @@ class Expr:
     def __bool__(self) -> bool:
         if self._emit_error() is None:
             _current_on_error(
-                "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
+                "e cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
             )
         return True
 

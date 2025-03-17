@@ -1,5 +1,6 @@
 import pytest
 
+from pyactions.expr import MapContext
 from src.pyactions.new.expr import *
 import unittest.mock
 
@@ -21,6 +22,13 @@ def test_ops():
     )
 
 
+def test_ref_dot():
+    a = RefExpr("a")
+    dot = a.x.y
+    assert dot is RefExpr("a", "x", "y")
+    assert instantiate(dot) == "${{ a.x.y }}"
+
+
 def test_refs():
     a = RefExpr("a")
     b = RefExpr("b")
@@ -32,154 +40,127 @@ def test_refs():
     assert refs(a[b][0]) == {a, b}
 
 
-def test_ref_dot():
+def test_refs_on_strings():
     a = RefExpr("a")
-    dot = a.x.y
-    assert dot is RefExpr("a", "x", "y")
-    assert instantiate(dot) == "${{ a.x.y }}"
+    b = RefExpr("b")
+    c = RefExpr("c")
+
+    assert refs(f"-- {a} __ {b} || {c} >>") == {a, b, c}
+    assert refs(
+        {
+            "FOO": f"/{a}",
+            "BAR": f"/{a}/{b}",
+            "BAZ": c,
+        }
+    ) == {a, b, c}
+    assert refs([f"<{a}>", f"<{b}, {a}>", c]) == {a, b, c}
 
 
-# def test_no_bool():
-#     a = Expr("a")
-#
-#     with pytest.raises(ValueError):
-#         a and a
-#
-#     with pytest.raises(ValueError):
-#         a or a
-#
-#
-# def test_simple_context():
-#     class X(Context):
-#         a = Expr()
-#         b = Expr()
-#
-#     x = X("x")
-#
-#     assert str(x) == "${{ x }}"
-#     assert str(x.a) == "${{ x.a }}"
-#     assert str(x.b) == "${{ x.b }}"
-#
-#     with pytest.raises(ValueError):
-#         _ = x.c
-#
-#
-# def test_nested_context():
-#     class X(Context):
-#         class Y(Context):
-#             b = Expr()
-#             a = Expr()
-#
-#         y = Y()
-#
-#     x = X("x")
-#
-#     assert str(x.y) == "${{ x.y }}"
-#     assert str(x.y.a) == "${{ x.y.a }}"
-#     assert str(x.y.b) == "${{ x.y.b }}"
-#
-#     with pytest.raises(ValueError):
-#         _ = x.c
-#
-#
-# def test_potential_fields():
-#     class X(Context):
-#         a = Inactive()
-#
-#         class Y(Context):
-#             b = Inactive()
-#
-#         y = Inactive(Y)
-#
-#         class Z(Context):
-#             c = Inactive()
-#
-#         z = Z()
-#
-#     x = X("x")
-#
-#     with pytest.raises(ValueError):
-#         _ = x.a
-#
-#     with pytest.raises(ValueError):
-#         _ = x.y
-#
-#     x._activate("a")
-#     assert str(x.a) == "${{ x.a }}"
-#
-#     x._activate("y")
-#     assert str(x.y) == "${{ x.y }}"
-#
-#     with pytest.raises(ValueError):
-#         _ = x.y.b
-#
-#     x.y._activate("b")
-#     assert str(x.y.b) == "${{ x.y.b }}"
-#
-#     x._clear()
-#     with pytest.raises(ValueError):
-#         _ = x.a
-#
-#     with pytest.raises(ValueError):
-#         _ = x.y
-#
-#     x._activate("y")
-#     with pytest.raises(ValueError):
-#         _ = x.y.b
-#
-#
-# def test_map_context():
-#     class X(Context):
-#         a = MapContext()
-#
-#         class B(Context):
-#             c = Expr()
-#
-#         b = MapContext(fieldcls=B)
-#
-#     x = X("x")
-#
-#     assert not x.a._has("foo")
-#     with pytest.raises(ValueError):
-#         _ = x.a.foo
-#
-#     assert not x.b._has("bar")
-#     with pytest.raises(ValueError):
-#         _ = x.b.bar
-#
-#     x.a._activate("foo")
-#     x.b._activate("bar")
-#
-#     assert x.a._has("foo")
-#     assert str(x.a.foo) == "${{ x.a.foo }}"
-#     assert x.b._has("bar")
-#     assert str(x.b.bar) == "${{ x.b.bar }}"
-#     assert str(x.b.bar.c) == "${{ x.b.bar.c }}"
-#
-#     x._clear()
-#
-#     assert not x.a._has("foo")
-#     with pytest.raises(ValueError):
-#         _ = x.a.foo
-#
-#     assert not x.b._has("bar")
-#     with pytest.raises(ValueError):
-#         _ = x.b.bar
-#
-#
-# def test_free_map_context():
-#     x = MapContext(value="x")
-#     x._activate_all()
-#     assert x._has("foo")
-#     assert str(x.foo) == "${{ x.foo }}"
-#
-#     x._clear()
-#
-#     assert not x._has("foo")
-#     with pytest.raises(ValueError):
-#         _ = x.foo
-#
-#
+def test_no_bool():
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        a = RefExpr("a")
+        assert a
+        error_handler.assert_called_once()
+
+
+def test_simple_context():
+    x = Context(
+        "x",
+        structure={
+            "a": None,
+            "b": None,
+        },
+    )
+
+    assert instantiate(x) == "${{ x }}"
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.b) == "${{ x.b }}"
+
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        _ = x.c
+        _ = x.b.whatever
+        error_handler.assert_has_calls(
+            [
+                unittest.mock.call("`c` not available in `x`"),
+                unittest.mock.call("`whatever` not available in `x.b`"),
+            ]
+        )
+
+
+def test_nested_context():
+    x = Context(
+        "x",
+        structure={
+            "a": None,
+            "b": None,
+            "y": {
+                "c": None,
+                "d": None,
+            },
+        },
+    )
+
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.b) == "${{ x.b }}"
+    assert instantiate(x.y.c) == "${{ x.y.c }}"
+    assert instantiate(x.y.d) == "${{ x.y.d }}"
+
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        _ = x.c
+        _ = x.y.bla
+        _ = x.y.a
+        error_handler.assert_has_calls(
+            [
+                unittest.mock.call("`c` not available in `x`"),
+                unittest.mock.call("`bla` not available in `x.y`"),
+                unittest.mock.call("`a` not available in `x.y`"),
+            ]
+        )
+
+
+def test_map_context():
+    x = Context(
+        "x",
+        structure={
+            "a": None,
+            "b": {
+                "*": None,
+            },
+            "*": {
+                "foo": None,
+                "bar": {
+                    "baz": None,
+                },
+            },
+        },
+    )
+
+    assert instantiate(x) == "${{ x }}"
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.b) == "${{ x.b }}"
+    assert instantiate(x.b.whatever) == "${{ x.b.whatever }}"
+    assert instantiate(x.baz) == "${{ x.baz }}"
+    assert instantiate(x.baz.foo) == "${{ x.baz.foo }}"
+    assert instantiate(x.baz.bar) == "${{ x.baz.bar }}"
+    assert instantiate(x.baz.bar.baz) == "${{ x.baz.bar.baz }}"
+
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        _ = x.b.foo.whatever
+        _ = x.baz.foo.whatever
+        _ = x.baz.bar.whatever
+        error_handler.assert_has_calls(
+            [
+                unittest.mock.call("`whatever` not available in `x.b.foo`"),
+                unittest.mock.call("`whatever` not available in `x.baz.foo`"),
+                unittest.mock.call("`whatever` not available in `x.baz.bar`"),
+            ]
+        )
+
+
 def test_functions():
     f = function("foo", 3)
     x = RefExpr("x")
@@ -214,3 +195,9 @@ def test_error_expr():
         error_handler.reset_mock()
         assert instantiate(e.x.y[0] & 3 | True == "x") == "${{ error('an error') }}"
         error_handler.assert_not_called()
+
+
+def test_default_error():
+    with pytest.raises(ValueError) as e:
+        _ = ~ErrorExpr("an error")
+    assert e.value.args == ("an error",)

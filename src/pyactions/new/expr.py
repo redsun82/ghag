@@ -1,5 +1,6 @@
 import dataclasses
 import abc
+import re
 import typing
 import weakref
 import contextlib
@@ -33,6 +34,9 @@ class Expr(abc.ABC):
         match x:
             case Expr() as e:
                 yield from e._get_refs()
+            case str() as s:
+                for m in re.finditer("\0(.*?)\0", s):
+                    yield RefExpr(*m[1].split("."))
             case dict():
                 for v in x.values():
                     yield from Expr._refs(v)
@@ -102,7 +106,7 @@ class Expr(abc.ABC):
 
     def __bool__(self):
         _current_on_error(
-            "Expr cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
+            "expressions cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
         )
         return True
 
@@ -116,14 +120,17 @@ def refs(x: typing.Any) -> set["RefExpr"]:
 
 @dataclasses.dataclass(frozen=True, eq=False, unsafe_hash=True)
 class RefExpr(Expr):
-    path: tuple[str, ...]
+    _segments: tuple[str, ...]
     _store: typing.ClassVar[dict[tuple[str, ...], weakref.ReferenceType["RefExpr"]]] = (
         {}
     )
 
-    def __new__(cls, *args: str):
+    def __new__(cls, *args: str, **kwargs: typing.Any):
         ref = cls._store.get(args, lambda: None)()
         if ref is not None:
+            assert isinstance(
+                ref, cls
+            ), f"{type(ref).__name__}({", ".join(map(repr, args))}) was created before this {cls.__name__}"
             return ref
         cls._store.pop(args, None)
         instance = super().__new__(cls)
@@ -132,11 +139,15 @@ class RefExpr(Expr):
 
     def __init__(self, *args: str):
         super().__init__()
-        object.__setattr__(self, "path", args)
+        object.__setattr__(self, "_segments", args)
+
+    @property
+    def _path(self) -> str:
+        return ".".join(self._segments)
 
     @property
     def _syntax(self) -> str:
-        return f"\0{".".join(self.path)}\0"
+        return f"\0{self._path}\0"
 
     def _get_refs(self) -> typing.Generator["RefExpr", None, None]:
         yield self
@@ -144,7 +155,7 @@ class RefExpr(Expr):
     def __getattr__(self, item):
         if item.startswith("_"):
             raise AttributeError(item)
-        return RefExpr(*self.path, item)
+        return RefExpr(*self._segments, item)
 
 
 _op_precedence = (
@@ -159,37 +170,37 @@ _op_precedence = {op: i for i, ops in enumerate(_op_precedence) for op in ops}
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class LiteralExpr[T](Expr):
-    value: T
+    _value: T
 
     @property
     def _syntax(self) -> str:
-        if isinstance(self.value, str):
-            return f"'{self.value.replace("'", "''")}'"
-        return repr(self.value)
+        if isinstance(self._value, str):
+            return f"'{self._value.replace("'", "''")}'"
+        return repr(self._value)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class BinOpExpr(Expr):
-    left: Expr
-    right: Expr
-    op: str
+    _left: Expr
+    _right: Expr
+    _op: str
 
     @property
     def _precedence(self) -> int:
-        return _op_precedence[self.op]
+        return _op_precedence[self._op]
 
     @property
     def _syntax(self) -> str:
-        return f"{self._operand_from(self.left)} {self.op} {self._operand_from(self.right)}"
+        return f"{self._operand_from(self._left)} {self._op} {self._operand_from(self._right)}"
 
     def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self.left._get_refs()
-        yield from self.right._get_refs()
+        yield from self._left._get_refs()
+        yield from self._right._get_refs()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class NotExpr(Expr):
-    expr: Expr
+    _expr: Expr
 
     @property
     def _precedence(self) -> int:
@@ -197,16 +208,16 @@ class NotExpr(Expr):
 
     @property
     def _syntax(self) -> str:
-        return f"!{self._operand_from(self.expr)}"
+        return f"!{self._operand_from(self._expr)}"
 
     def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self.expr._get_refs()
+        yield from self._expr._get_refs()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class ItemExpr(Expr):
-    expr: Expr
-    index: Expr
+    _expr: Expr
+    _index: Expr
 
     @property
     def _precedence(self) -> int:
@@ -214,61 +225,56 @@ class ItemExpr(Expr):
 
     @property
     def _syntax(self) -> str:
-        return f"{self._operand_from(self.expr)}[{self.index._syntax}]"
+        return f"{self._operand_from(self._expr)}[{self._index._syntax}]"
 
     def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self.expr._get_refs()
-        yield from self.index._get_refs()
+        yield from self._expr._get_refs()
+        yield from self._index._get_refs()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class DotExpr(Expr):
-    expr: Expr
-    attr: str
+    _expr: Expr
+    _attr: str
 
     @property
     def _syntax(self) -> str:
-        return f"{self._operand_from(self.expr)}.{self.attr}"
+        return f"{self._operand_from(self._expr)}.{self._attr}"
 
     def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        yield from self.expr._get_refs()
+        yield from self._expr._get_refs()
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class CallExpr(Expr):
-    function: str
-    args: tuple[Expr, ...]
+    _function: str
+    _args: tuple[Expr, ...]
 
     def __init__(self, function: str, *args: Expr):
         super().__init__()
-        object.__setattr__(self, "function", function)
-        object.__setattr__(self, "args", args)
+        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "_args", args)
 
     @property
     def _syntax(self) -> str:
-        return f"{self.function}({', '.join(a._syntax for a in self.args)})"
+        return f"{self._function}({', '.join(a._syntax for a in self._args)})"
 
     def _get_refs(self) -> typing.Generator[RefExpr, None, None]:
-        for a in self.args:
+        for a in self._args:
             yield from a._get_refs()
 
 
 @dataclasses.dataclass
 class ErrorExpr(Expr):
-    error: str | typing.Callable[[], str]
-    emitted: bool = False
-
-    @property
-    def _error(self) -> str:
-        e = self.error
-        if callable(e):
-            return e()
-        return e
+    _error: str | typing.Callable[[], str]
+    _emitted: bool = False
 
     def _emit(self) -> typing.Self:
-        if not self.emitted:
+        if not self._emitted:
+            if callable(self._error):
+                self._error = self._error()
             _current_on_error(self._error)
-            self.emitted = True
+            self._emitted = True
         return self
 
     @property
@@ -317,6 +323,35 @@ class ErrorExpr(Expr):
         if key.startswith("_"):
             raise AttributeError(key)
         return self._emit()
+
+
+type ContextStructure = dict[str, typing.Optional["ContextStructure"]]
+
+
+class Context(RefExpr):
+    def __init__(self, *path: str, structure: ContextStructure | None = None):
+        super().__init__(*path)
+        object.__setattr__(self, "_child_factory", None)
+        if structure:
+            for f, d in structure.items():
+                child_factory = lambda key: Context(*path, key, structure=d)
+                if f == "*":
+                    object.__setattr__(self, "_child_factory", child_factory)
+                else:
+                    object.__setattr__(self, f, child_factory(f))
+
+    def __getattr__(self, name) -> Expr:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if self._child_factory:
+            return self._child_factory(name)
+        return ~ErrorExpr(f"`{name}` not available in `{self._path}`")
+
+
+class Var:
+    def __set_name__(self, owner, name):
+        owner.fields[name] = self
+        self.name = name
 
 
 def function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
