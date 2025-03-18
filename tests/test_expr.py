@@ -1,183 +1,236 @@
 import pytest
 
-from src.pyactions.ctx import GenerationError
 from src.pyactions.expr import *
-from src.pyactions.expr import expr_function
 import unittest.mock
 
 
-def test_ops():
-    a = Expr("a")
-    b = Expr("b")
-    c = Expr("c")
+@pytest.fixture(autouse=True)
+def reset_ref_expr_store():
+    # Reset the store before each test
+    RefExpr._store.clear()
 
-    assert str(a | (b & c)) == "${{ a || b && c }}"
-    assert str((a | b) & c) == "${{ (a || b) && c }}"
-    assert str(~a | b) == "${{ !a || b }}"
-    assert str(~(a | b)) == "${{ !(a || b) }}"
-    assert str((a & b)[0]) == "${{ (a && b)[0] }}"
-    assert str((a & b).x) == "${{ (a && b).x }}"
-    assert str((a == b) | (a < c)) == "${{ a == b || a < c }}"
-    assert str((0 != a) & (a >= c) & (b > c)) == "${{ a != 0 && a >= c && b > c }}"
+
+def test_ops():
+    a = RefExpr("a")
+    b = RefExpr("b")
+    c = RefExpr("c")
+
+    assert instantiate(a | (b & c)) == "${{ a || b && c }}"
+    assert instantiate((a | b) & c) == "${{ (a || b) && c }}"
+    assert instantiate(~a | b) == "${{ !a || b }}"
+    assert instantiate(~(a | b)) == "${{ !(a || b) }}"
+    assert instantiate((a & b)[0]) == "${{ (a && b)[0] }}"
+    assert instantiate((a & b).x) == "${{ (a && b).x }}"
+    assert instantiate((a == b) | (a < c)) == "${{ a == b || a < c }}"
+    assert (
+        instantiate((0 != a) & (a >= c) & (b > c)) == "${{ a != 0 && a >= c && b > c }}"
+    )
+
+
+def test_reftree():
+    a = RefExpr("a")
+    b = RefExpr("b")
+    c = RefExpr("c")
+
+    assert reftree(a) == {"a": {}}
+    assert reftree(a | (b & c)) == dict.fromkeys("abc", {})
+    assert reftree(~(a | b) & a) == dict.fromkeys("ab", {})
+    assert reftree(a[b][0]) == dict.fromkeys("ab", {})
+
+
+def test_reftree_on_strings():
+    a = RefExpr("a")
+    b = RefExpr("b")
+    c = RefExpr("c")
+
+    assert reftree(f"-- {a} __ {b} || {c} >>") == dict.fromkeys("abc", {})
+    assert reftree(
+        {
+            "FOO": f"/{a}",
+            f"<{b}>": f"/{a}",
+            "BAZ": [c],
+        }
+    ) == dict.fromkeys("abc", {})
+    assert reftree([f"<{a}>", f"<{a}, {b}>", {"A": "a", "c": c}]) == dict.fromkeys(
+        "abc", {}
+    )
 
 
 def test_no_bool():
-    a = Expr("a")
-
-    with pytest.raises(ValueError):
-        a and a
-
-    with pytest.raises(ValueError):
-        a or a
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        a = RefExpr("a")
+        assert a
+        error_handler.assert_called_once()
 
 
 def test_simple_context():
-    class X(Context):
-        a = Expr()
-        b = Expr()
+    class Contexts:
+        class X(Var):
+            a = Var()
+            b = Var()
 
-    x = X("x")
+        x = X()
 
-    assert str(x) == "${{ x }}"
-    assert str(x.a) == "${{ x.a }}"
-    assert str(x.b) == "${{ x.b }}"
+    x = Contexts.x
 
-    with pytest.raises(ValueError):
+    assert instantiate(x) == "${{ x }}"
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.b) == "${{ x.b }}"
+    assert instantiate(x._) == "${{ x.* }}"
+
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
         _ = x.c
+        _ = x.b.whatever
+        error_handler.assert_has_calls(
+            [
+                unittest.mock.call("`c` not available in `x`"),
+                unittest.mock.call("`whatever` not available in `x.b`"),
+            ]
+        )
+
+
+def test_context_with_call_operator():
+    m = unittest.mock.Mock()
+
+    class Contexts:
+        class X(Var):
+            a = Var()
+            b = Var()
+
+            def __call__(self, *args, **kwargs):
+                m(*args, **kwargs)
+
+        x = X()
+
+    x = Contexts.x
+    x(1, 2, 3, a=4, b=5)
+    assert m.mock_calls == [unittest.mock.call(1, 2, 3, a=4, b=5)]
 
 
 def test_nested_context():
-    class X(Context):
-        class Y(Context):
-            b = Expr()
-            a = Expr()
+    class Contexts:
+        class X(Var):
+            a = Var()
+            b = Var()
 
-        y = Y()
+            class Y(Var):
+                c = Var()
+                d = Var()
 
-    x = X("x")
+            y = Y()
 
-    assert str(x.y) == "${{ x.y }}"
-    assert str(x.y.a) == "${{ x.y.a }}"
-    assert str(x.y.b) == "${{ x.y.b }}"
+        x = X()
 
-    with pytest.raises(ValueError):
+    x = Contexts.x
+
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.b) == "${{ x.b }}"
+    assert instantiate(x.y.c) == "${{ x.y.c }}"
+    assert instantiate(x.y.d) == "${{ x.y.d }}"
+
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
         _ = x.c
-
-
-def test_potential_fields():
-    class X(Context):
-        a = Inactive()
-
-        class Y(Context):
-            b = Inactive()
-
-        y = Inactive(Y)
-
-        class Z(Context):
-            c = Inactive()
-
-        z = Z()
-
-    x = X("x")
-
-    with pytest.raises(ValueError):
-        _ = x.a
-
-    with pytest.raises(ValueError):
-        _ = x.y
-
-    x._activate("a")
-    assert str(x.a) == "${{ x.a }}"
-
-    x._activate("y")
-    assert str(x.y) == "${{ x.y }}"
-
-    with pytest.raises(ValueError):
-        _ = x.y.b
-
-    x.y._activate("b")
-    assert str(x.y.b) == "${{ x.y.b }}"
-
-    x._clear()
-    with pytest.raises(ValueError):
-        _ = x.a
-
-    with pytest.raises(ValueError):
-        _ = x.y
-
-    x._activate("y")
-    with pytest.raises(ValueError):
-        _ = x.y.b
+        _ = x.y.bla
+        _ = x.y.a
+        error_handler.assert_has_calls(
+            [
+                unittest.mock.call("`c` not available in `x`"),
+                unittest.mock.call("`bla` not available in `x.y`"),
+                unittest.mock.call("`a` not available in `x.y`"),
+            ]
+        )
 
 
 def test_map_context():
-    class X(Context):
-        a = MapContext()
+    class Contexts:
+        class X[T](Var):
+            a = Var()
 
-        class B(Context):
-            c = Expr()
+            class B(Var):
+                _ = Var()
 
-        b = MapContext(fieldcls=B)
+            b = B()
 
-    x = X("x")
+            class Y(Var):
+                foo = Var()
+                bar = Var()
 
-    assert not x.a._has("foo")
-    with pytest.raises(ValueError):
-        _ = x.a.foo
+            _ = Y()
+            __getattr__: typing.Callable[[str], Y]  # for IDE completion
 
-    assert not x.b._has("bar")
-    with pytest.raises(ValueError):
-        _ = x.b.bar
+        x = X()
 
-    x.a._activate("foo")
-    x.b._activate("bar")
+    x = Contexts.x
 
-    assert x.a._has("foo")
-    assert str(x.a.foo) == "${{ x.a.foo }}"
-    assert x.b._has("bar")
-    assert str(x.b.bar) == "${{ x.b.bar }}"
-    assert str(x.b.bar.c) == "${{ x.b.bar.c }}"
+    assert instantiate(x) == "${{ x }}"
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.b) == "${{ x.b }}"
+    assert instantiate(x.b.whatever) == "${{ x.b.whatever }}"
+    assert instantiate(x.baz) == "${{ x.baz }}"
+    assert instantiate(x.baz.foo) == "${{ x.baz.foo }}"
+    assert instantiate(x.baz.bar) == "${{ x.baz.bar }}"
+    assert instantiate(x._.foo) == "${{ x.*.foo }}"
 
-    x._clear()
+    assert reftree(x.a & x.baz.foo & x._.bar) == {
+        "x": {"a": {}, "baz": {"foo": {}}, "*": {"bar": {}}}
+    }
 
-    assert not x.a._has("foo")
-    with pytest.raises(ValueError):
-        _ = x.a.foo
-
-    assert not x.b._has("bar")
-    with pytest.raises(ValueError):
-        _ = x.b.bar
-
-
-def test_free_map_context():
-    x = MapContext(value="x")
-    x._activate_all()
-    assert x._has("foo")
-    assert str(x.foo) == "${{ x.foo }}"
-
-    x._clear()
-
-    assert not x._has("foo")
-    with pytest.raises(ValueError):
-        _ = x.foo
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        _ = x.b.foo.whatever
+        _ = x.baz.foo.whatever
+        _ = x.baz.bar.whatever
+        _ = x._.whatever
+        error_handler.assert_has_calls(
+            [
+                unittest.mock.call("`whatever` not available in `x.b.foo`"),
+                unittest.mock.call("`whatever` not available in `x.baz.foo`"),
+                unittest.mock.call("`whatever` not available in `x.baz.bar`"),
+                unittest.mock.call("`whatever` not available in `x.*`"),
+            ]
+        )
 
 
 def test_functions():
-    f = expr_function("foo", 3)
-    x = Expr("x")
-    assert str(f(1, x, "s's")) == "${{ foo(1, x, 's''s') }}"
-    for trial in (lambda: f(1), lambda: f(1, 2, 3, 4), lambda: f(x=1, y=2, z=3)):
-        with pytest.raises(ValueError):
-            trial()
+    f = function("foo", 3)
+    x = RefExpr("x")
+    assert instantiate(f(1, x, "s's")) == "${{ foo(1, x, 's''s') }}"
+    for wrong, expected_error in (
+        (lambda: f(1), "wrong number of arguments to `foo`, expected 3, got 1"),
+        (
+            lambda: f(1, 2, 3, 4),
+            "wrong number of arguments to `foo`, expected 3, got 4",
+        ),
+        (
+            lambda: f(x=1, y=2, z=3),
+            "unexpected keyword arguments to `foo`, expected 3 positional arguments",
+        ),
+    ):
+        error_handler = unittest.mock.Mock()
+        with on_error(error_handler):
+            call = wrong()
+            error_handler.assert_called_once_with(expected_error)
+            assert instantiate(call) == f"${{{{ error('{expected_error}') }}}}"
+
+    assert reftree(f(1, x, "s's")) == {"x": {}}
 
 
 def test_error_expr():
-    e = unittest.mock.Mock()
-    with on_error(e):
-        ee = Expr(_error="an error")
-        e.assert_not_called()
-        _ = str(ee)
-        e.assert_called_once_with("an error")
-        e.reset_mock()
-        _ = str(ee.x.y[0] & 3 | True == "x")
-        e.assert_not_called()
+    error_handler = unittest.mock.Mock()
+    with on_error(error_handler):
+        e = ErrorExpr("an error")
+        error_handler.assert_not_called()
+        assert instantiate(e) == "${{ error('an error') }}"
+        error_handler.assert_called_once_with("an error")
+        error_handler.reset_mock()
+        assert instantiate(e.x.y[0] & 3 | True == "x") == "${{ error('an error') }}"
+        error_handler.assert_not_called()
+
+
+def test_default_error():
+    with pytest.raises(ValueError) as e:
+        _ = ~ErrorExpr("an error")
+    assert e.value.args == ("an error",)

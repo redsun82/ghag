@@ -1,7 +1,7 @@
 import dataclasses
 import typing
 
-from .expr import Expr
+from .expr import Expr, instantiate
 
 
 @dataclasses.dataclass
@@ -57,10 +57,10 @@ def asobj(o: typing.Any):
     match o:
         case Element() as e:
             return e.asdict()
-        case Expr() as e:
-            return str(e)
+        case Expr() | str():
+            return instantiate(o)
         case dict() as d:
-            return {k: asobj(v) for k, v in d.items() if v is not None}
+            return {instantiate(k): asobj(v) for k, v in d.items() if v is not None}
         case list() as l:
             return [asobj(x) for x in l]
         case _:

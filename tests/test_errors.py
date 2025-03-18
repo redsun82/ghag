@@ -127,9 +127,7 @@ def test_wrong_annotation():
 @expect_errors
 def test_unexpected_step_outputs(error):
     x = step("x")
-    error(
-        "`foo` not available in `steps.x.outputs`, use `returns()` on the corresponding step to declare them"
-    )
+    error("`foo` was not declared in step `x`, use `returns()` declare it")
     step("y").run(x.outputs.foo)
 
 
@@ -142,7 +140,7 @@ def test_wrong_outputs(error):
     #     x = step("x")
     #     return x.outputs
 
-    error("job `j2` returns expression `steps.y.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
+    error("job `y` returns expression `steps.y.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
     @job
     def j2():
         x = step("x").returns("foo")
@@ -166,9 +164,7 @@ def test_wrong_outputs(error):
 @expect_errors
 def test_undeclared_step_output(error):
     x = step("step1").returns("foo")
-    error(
-        "`bar` not available in `steps.x.outputs`, use `returns()` on the corresponding step to declare them"
-    )
+    error("`bar` was not declared in step `x`, use `returns()` declare it")
     step("step2").run(x.outputs.bar)
 
 
@@ -192,23 +188,20 @@ def test_wrong_job_needs(error):
 
     @job
     def j4():
-        error("job `j3` is not a prerequisite, you must add it to `j4`'s parameters")
+        error("job `j3` is not a prerequisite, you must add it to `j3`'s parameters")
         run(j3.outputs)
     # fmt: on
 
 
 @expect_errors
 def test_unavailable_job_contexts(error):
-    error("`matrix` context is only available in a matrix job")
     _ = str(matrix)
-    error("`steps` context is only available in a job")
     _ = str(steps)
-    error("`job` context is only available in a job")
     _ = str(job)
 
     @job
     def j():
-        error("`matrix` context is only available in a matrix job")
+        error("`matrix` can only be used in a matrix job")
         step(matrix.x)
 
 
@@ -216,7 +209,7 @@ def test_unavailable_job_contexts(error):
 def test_unavailable_container(error):
     @job
     def j1():
-        error("`container` not available in `job`")
+        error("`job.container` can only be used in a containerized job")
         step(job.container.id)
 
 
@@ -224,13 +217,13 @@ def test_unavailable_container(error):
 def test_unavailable_service(error):
     @job
     def j1():
-        error("`services` not available in `job`")
+        error("`job.services` can only be used in a job with services")
         step(job.services)
 
     @job
     def j2():
         service("a")
-        error("`b` not available in `job.services`")
+        error("no `b` service defined in `job.services`")
         step(job.services.b)
 
 
@@ -239,17 +232,13 @@ def test_unavailable_matrix_values(error):
     @job
     def j1():
         strategy.matrix(a=[0])
-        error(
-            "`x` not available in `matrix`, it must be included with `strategy.matrix()`"
-        )
+        error("`x` was not declared in the `matrix` for this job")
         step(matrix.x)
 
     @job
     def j2():
         strategy.matrix(b=["x"])
-        error(
-            "`a` not available in `matrix`, it must be included with `strategy.matrix()`"
-        )
+        error("`a` was not declared in the `matrix` for this job")
         step(matrix.a)
 
     @job
@@ -259,7 +248,5 @@ def test_unavailable_matrix_values(error):
     @job
     def j4():
         strategy.matrix(x=[42])
-        error(
-            "`a` not available in `matrix`, it must be included with `strategy.matrix()`"
-        )
+        error("`a` was not declared in the `matrix` for this job")
         step(matrix.a)

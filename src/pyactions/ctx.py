@@ -7,9 +7,10 @@ import dataclasses
 import threading
 import pathlib
 
-from .expr import Expr, on_error, Context, MapContext, ContextGroup, Inactive
-from . import expr, workflow, element
+from .expr import Expr, on_error, Var, SimpleMap, ErrorExpr, function, reftree
+from . import workflow, element
 from .workflow import *
+from .rules import RuleSet, rule
 
 
 @dataclass
@@ -53,56 +54,51 @@ class _Context(threading.local):
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
 
-    class JobContexts(ContextGroup):
-        class Step(Context):
-            outputs = MapContext(
-                _field_access_error=", use `returns()` on the corresponding step to declare them",
-            )
-            result = Expr()
-            outcome = Expr()
+    class Steps(Var):
+        class Step(Var):
+            outputs = SimpleMap()
+            result = Var()
+            outcome = Var()
 
-        steps: MapContext[Step] = MapContext(
-            fieldcls=Step,
-            _field_access_error=", no step has that `id`",
-            _inactive_error="`steps` context is only available in a job",
-        )
-        matrix: MapContext[Expr] = MapContext(
-            _field_access_error=", it must be included with `strategy.matrix()`",
-            _inactive_error="`matrix` context is only available in a matrix job",
-        )
+        _ = Step()
 
-        class Job(Context):
-            class Container(Context):
-                id = Expr()
-                network = Expr()
+    steps = Steps()
+    matrix = SimpleMap()
 
-            container = Inactive(Container)
+    class Job(Var):
+        class Container(Var):
+            id = Var()
+            network = Var()
 
-            class Service(Container):
-                ports = Expr(_field_access_error=None)
+        container = Container()
 
-            services = Inactive(MapContext, fieldcls=Service)
-            status = Expr()
+        class Services(Var):
+            class Service(Var):
+                id = Var()
+                network = Var()
+                ports = Var()
 
-            # we want `job` to be both the context and the decorator to describe jobs
-            # forward the decoration usage
-            def __call__(
-                self,
-                func: typing.Union["JobCall", None] = None,
-                *,
-                id: str | None = None,
-            ) -> typing.Callable[["JobCall"], Expr] | Expr:
-                return _interpret_job(func, id=id)
+            _ = Service()
 
-        job = Job(
-            _inactive_error="`job` context is only available in a job",
-        )
+        services = Services()
+        status = Var()
 
-        def activate(self):
-            self.steps._activate()
-            self.job._activate()
+        # we want `job` to be both the context and the decorator to describe jobs
+        # forward the decoration usage
+        def __call__(
+            self,
+            func: typing.Union["JobCall", None] = None,
+            *,
+            id: str | None = None,
+        ) -> typing.Callable[["JobCall"], Expr] | Expr:
+            return _interpret_job(func, id=id)
 
-    job_contexts = JobContexts()
+    job = Job()
+
+    rules: "_ContextRules" = field(default_factory=lambda: _ContextRules())
+
+    def validate(self, value: typing.Any):
+        self.rules.validate(value)
 
     def reset(self):
         self.reset_job()
@@ -114,7 +110,6 @@ class _Context(threading.local):
     def reset_job(self, job: Job | None = None, job_id: str | None = None):
         self.current_job = job
         self.current_job_id = job_id
-        self.job_contexts.clear()
 
     def empty(self) -> bool:
         return (
@@ -143,7 +138,7 @@ class _Context(threading.local):
         return cond
 
     @contextlib.contextmanager
-    def workflow(self, id: str) -> typing.Generator[Workflow, None, None]:
+    def build_workflow(self, id: str) -> typing.Generator[Workflow, None, None]:
         assert self.empty()
         self.current_workflow = Workflow()
         self.current_workflow_id = id
@@ -156,12 +151,11 @@ class _Context(threading.local):
                 self.reset()
 
     @contextlib.contextmanager
-    def job(self, id: str) -> typing.Generator[Job, None, None]:
+    def build_job(self, id: str) -> typing.Generator[Job, None, None]:
         previous_job = self.current_job
         previous_job_id = self.current_job_id
         job = Job()
         self.reset_job(job, id)
-        self.job_contexts.activate()
         try:
             yield job
             if self.auto_job_reason:
@@ -187,7 +181,6 @@ class _Context(threading.local):
             wf.jobs[self.current_workflow_id] = job
             self.reset_job(job, self.current_workflow_id)
             self.auto_job_reason = reason
-            self.job_contexts.activate()
         else:
             self.error(
                 f"`{reason}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
@@ -334,21 +327,7 @@ class _JobUpdaters(_Updaters):
     runs_on = _Updater(str)
 
     class StrategyUpdater(_Updater):
-        class MatrixUpdater(_Updater):
-            def _apply(self, *args, **kwargs):
-                ret = super()._apply(*args, **kwargs)
-                match ret:
-                    case Matrix():
-                        for x in ret.include or ():
-                            for k in x:
-                                matrix._activate(k)
-                        for k in ret.values or ():
-                            matrix._activate(k)
-                    case Expr():
-                        # if coming from an expression, we don't know the keys, allow all
-                        matrix._activate_all()
-
-        matrix = MatrixUpdater(Matrix)
+        matrix = _Updater(Matrix)
         fail_fast = _Updater(lambda v=True: v)
         max_parallel = _Updater(int)
 
@@ -358,10 +337,6 @@ class _JobUpdaters(_Updaters):
     steps = _Updater(list)
 
     class ContainerUpdater[**P, F](_Updater[P, F]):
-        def _apply(self, *args: P.args, **kwargs: P.kwargs) -> F | None:
-            job._activate("container")
-            return super()._apply(*args, **kwargs)
-
         image = _Updater(str)
         credentials = _Updater(Credentials)
         env = _Updater(dict)
@@ -372,6 +347,82 @@ class _JobUpdaters(_Updaters):
     container = ContainerUpdater(Container)
 
     service = _MapUpdater(Container)
+
+
+class _ContextRules(RuleSet):
+    @rule(_Context.steps)
+    def validate_steps(self):
+        return _ctx.check(
+            _ctx.current_job,
+            "`steps` can only be used in a job, did you forget a `@job` decoration?",
+        )
+
+    @rule(_Context.steps._)
+    def validate_step_id(self, id: str):
+        return _ctx.check(
+            any(s.id == id for s in _ctx.current_job.steps),
+            f"step `{id}` not defined in job `{_ctx.current_job_id}`",
+        )
+
+    @rule(_Context.steps._.outputs._)
+    def validate_step_outputs(self, id: str, output: str):
+        step = next(s for s in _ctx.current_job.steps if s.id == id)
+        return _ctx.check(
+            step.outputs and step.outputs and output in step.outputs,
+            f"`{output}` was not declared in step `{id}`, use `returns()` declare it",
+        )
+
+    @rule(_Context.matrix)
+    def validate_matrix(self):
+        return _ctx.check(
+            _ctx.current_job
+            and _ctx.current_job.strategy is not None
+            and _ctx.current_job.strategy.matrix is not None,
+            "`matrix` can only be used in a matrix job",
+        )
+
+    @rule(_Context.matrix._)
+    def validate_matrix_id(self, id):
+        m = _ctx.current_job.strategy.matrix
+        if not isinstance(m, Matrix):
+            # don't try to be smart if using something like an Expr
+            return True
+        return _ctx.check(
+            m.values
+            and id in m.values
+            or m.include
+            and any(id in include for include in m.include),
+            f"`{id}` was not declared in the `matrix` for this job",
+        )
+
+    @rule(_Context.job)
+    def validate_job(self):
+        return _ctx.check(_ctx.current_job, "`job` can only be used in a job")
+
+    @rule(_Context.job.container)
+    def validate_job_container(self):
+        return _ctx.check(
+            _ctx.current_job.container,
+            "`job.container` can only be used in a containerized job",
+        )
+
+    @rule(_Context.job.services)
+    def validate_job_services(self):
+        return _ctx.check(
+            _ctx.current_job.services,
+            "`job.services` can only be used in a job with services",
+        )
+
+    @rule(_Context.job.services._)
+    def validate_job_service_id(self, id):
+        return _ctx.check(
+            id in _ctx.current_job.services,
+            f"no `{id}` service defined in `job.services`",
+        )
+
+    def validate(self, value: typing.Any):
+        refs = reftree(value)
+        self.apply(refs)
 
 
 _ctx = _Context()
@@ -434,7 +485,7 @@ class WorkflowInfo:
     errors: list[Error]
 
     def instantiate(self) -> Workflow:
-        with _ctx.workflow(self.id) as wf:
+        with _ctx.build_workflow(self.id) as wf:
             for e in self.errors:
                 e.workflow_id = e.workflow_id or current_workflow_id()
             _ctx.errors += self.errors
@@ -443,7 +494,7 @@ class WorkflowInfo:
                 key: (
                     input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
                     if i is not None
-                    else Expr(_error="")
+                    else ErrorExpr("", _emitted=True)
                 )
                 for key, i in self.inputs.items()
             }
@@ -508,12 +559,26 @@ def _job_returns(id: str, result: JobResult):
             )
             return
     for x in result:
-        if x._fields:
-            _JobUpdaters.outputs((o, getattr(x, o)) for o in sorted(x._fields))
-        else:
-            _ctx.error(
-                f"job `{id}` returns expression `{x._value}` which has no declared fields. Did you forget to use `returns()` on a step?",
-            )
+        path = x._segments
+        match path:
+            case ("steps", "*", "outputs"):
+                _ctx.error(
+                    f"job `{id}` returns `steps.*.outputs`, which is currently unsupported",
+                )
+            case ("steps", id, "outputs"):
+                step = next(s for s in _ctx.current_job.steps if s.id == id)
+                if step.outputs:
+                    _JobUpdaters.outputs(
+                        (o, getattr(x, o)) for o in sorted(step.outputs)
+                    )
+                else:
+                    _ctx.error(
+                        f"job `{id}` returns expression `{instantiate(x._syntax)}` which has no declared fields. Did you forget to use `returns()` on a step?",
+                    )
+            case _:
+                _ctx.error(
+                    f"job `{id}` returns an expression that is not in a `steps.*.outputs`"
+                )
 
 
 def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
@@ -521,10 +586,10 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     for p in inspect.signature(func).parameters:
         if p in _ctx.current_workflow.jobs:
             _JobUpdaters.needs([p])
-            ret[p] = Expr(f"needs.{p}")
+            ret[p] = RefExpr("needs", p)
         else:
-            ret[p] = ~Expr(
-                _error=f"job `{id}` needs job `{p}` which is currently undefined"
+            ret[p] = ~ErrorExpr(
+                f"job `{id}` needs job `{p}` which is currently undefined"
             )
     return ret
 
@@ -535,16 +600,16 @@ def _interpret_job(
     if func is None:
         return lambda func: _interpret_job(func, id=id)
     id = id or func.__name__
-    with _ctx.job(id) as j:
+    with _ctx.build_job(id) as j:
         j.name = func.__doc__
         input = _job_needs(id, func)
         _job_returns(id, func(**input))
-        return Expr(
-            _error=lambda: f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
+        return ErrorExpr(
+            f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
         )
 
 
-job: _Context.JobContexts.Job = _ctx.job_contexts.job
+job: _Context.Job = _Context.job
 
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
@@ -564,16 +629,10 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 
 strategy = _JobUpdaters.strategy
 container = _JobUpdaters.container
+service = _JobUpdaters.service
 
-
-def service(key: str, *args, **kwargs):
-    _JobUpdaters.service(key, *args, **kwargs)
-    job._activate("services")
-    job.services._activate(key)
-
-
-steps = _ctx.job_contexts.steps
-matrix = _ctx.job_contexts.matrix
+steps = _Context.steps
+matrix = _Context.matrix
 
 
 @dataclass
@@ -620,37 +679,40 @@ class _StepUpdater:
         ret = self._ensure_step()
         if ret._step.id:
             _ctx.error(f"id was already specified for this step as `{ret._step.id}`")
-        elif steps._has(id):
+        elif any(s.id == id for s in _ctx.current_job.steps):
             _ctx.error(f"id `{id}` was already specified for a step")
         else:
             ret._step.id = id
-            steps._activate(id)
-            for o in ret._step.outputs or ():
-                getattr(steps, id).outputs._activate(o)
         return ret
 
     def name(self, name: Value[str]) -> typing.Self:
         ret = self._ensure_step()
+        _ctx.validate(name)
         ret._step.name = name
         return ret
 
     def if_(self, condition: Value[bool]) -> typing.Self:
         ret = self._ensure_step()
+        _ctx.validate(condition)
         ret._step.if_ = condition
         return ret
 
     def env(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_run_step()
-        ret._step.env = (ret._step.env or {}) | dict(*args, **kwargs)
+        value = dict(*args, **kwargs)
+        _ctx.validate(value)
+        ret._step.env = (ret._step.env or {}) | value
         return ret
 
     def run(self, code: Value[str]):
         ret = self._ensure_run_step()
+        _ctx.validate(code)
         ret._step.run = code
         return ret
 
     def use(self, source: Value[str], **kwargs):
         ret = self._ensure_use_step()
+        _ctx.validate(source)
         ret._step.use = source
         if kwargs:
             ret.with_(kwargs)
@@ -658,18 +720,22 @@ class _StepUpdater:
 
     def continue_on_error(self, value: Value[bool] = True) -> typing.Self:
         ret = self._ensure_step()
+        _ctx.validate(value)
         ret._step.continue_on_error = value
         return ret
 
     def with_(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_use_step()
-        ret._step.with_ = (ret._step.with_ or {}) | dict(*args, **kwargs)
+        value = dict(*args, **kwargs)
+        _ctx.validate(value)
+        ret._step.with_ = (ret._step.with_ or {}) | value
         return ret
 
     def returns(self, *args: str, **kwargs: Value[str]) -> typing.Self:
         ret = self._ensure_run_step()
         outs = list(args)
         outs.extend(a for a in kwargs if a not in args)
+        _ctx.validate(kwargs)
         ret._step.outputs = ret._step.outputs or []
         ret._step.outputs += outs
         if ret._step.id:
@@ -687,14 +753,13 @@ class _StepUpdater:
         return ret
 
     def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
-        if not start_from_one and not steps._has(prefix):
+        def is_free(id: str) -> bool:
+            return all(s.id != id for s in _ctx.current_job.steps)
+
+        if not start_from_one and is_free(prefix):
             return prefix
         return next(
-            (
-                id
-                for id in (f"{prefix}-{i}" for i in itertools.count(1))
-                if not steps._has(id)
-            )
+            (id for id in (f"{prefix}-{i}" for i in itertools.count(1)) if is_free(id))
         )
 
     def _ensure_id(self) -> str:
@@ -704,7 +769,7 @@ class _StepUpdater:
         id = next((var for var, value in frame.f_locals.items() if value is self), None)
         if id is None:
             id = self._allocate_id("step", start_from_one=True)
-        elif steps._has(id):
+        elif any(s.id == id for s in _ctx.current_job.steps):
             id = self._allocate_id(id)
         self.id(id)
         return id
@@ -735,5 +800,5 @@ step = _StepUpdater()
 run = step.run
 use = step.use
 
-always = expr.expr_function("always", 0)
-fromJson = expr.expr_function("fromJson")
+always = function("always", 0)
+fromJson = function("fromJson")

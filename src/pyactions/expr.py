@@ -1,312 +1,432 @@
-import contextlib
 import dataclasses
+import abc
+import re
 import typing
-from typing import Self, Any
-import copy
+import weakref
+import contextlib
 
-__all__ = [
-    "Expr",
-    "Context",
-    "MapContext",
-    "ContextGroup",
-    "Inactive",
-    "on_error",
-]
-
-_ops = [
-    None,
-    "[]",
-    ".",
-    "!",
-    " < ",
-    " <= ",
-    " > ",
-    " >= ",
-    " == ",
-    " != ",
-    " && ",
-    " || ",
-]
-_ops = {op: i for i, op in enumerate(_ops)}
+from .types import RefTree
 
 
-@dataclasses.dataclass
-class _ContextMixin:
-    _fields: dict[str, "Expr"] = dataclasses.field(default_factory=dict)
-
-
-@dataclasses.dataclass
-class Expr:
-    _value: str | None = None
-    _: dataclasses.KW_ONLY
-    _op_index: int = 0
-    _field_access_error: str | None = ""
-    _error: str | typing.Callable[[], str] | None = None
-
-    def __set_name__(self, owner: type, name: str):
-        self._value = self._value or name
+class Expr(abc.ABC):
+    _precedence: int = 0
 
     @property
-    def _attribute_name(self) -> str:
-        return f"_f_{self._value}"
+    def _syntax(self) -> str: ...
 
-    def __get__(self, instance: _ContextMixin | None, owner: type) -> Self:
-        if instance is None:
-            return self
-        assert isinstance(instance, _ContextMixin)
-        ret = instance._fields.get(self._value)
-        if ret is None:
-            ret = copy.deepcopy(self)
-            parent = getattr(instance, "_value", None)
-            if parent:
-                ret._value = f"{parent}.{self._value}"
-            instance._fields[self._value] = ret
-        return ret
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from ()
 
-    def _emit_error(self) -> typing.Self | None:
-        if self._error is None:
-            return None
-        if self._error:
-            _current_on_error(self._error() if callable(self._error) else self._error)
-            self._error = ""
-        return self
+    @staticmethod
+    def _instantiate(x: typing.Any) -> typing.Any:
+        match x:
+            case Expr() as e:
+                return str(e).replace("\0", "")
+            case str() as s:
+                return s.replace("\0", "")
+            case dict():
+                return {k: Expr._instantiate(v) for k, v in x.items()}
+            case list():
+                return [Expr._instantiate(i) for i in x]
+            case _:
+                return x
 
-    def _clear(self):
-        pass
+    @staticmethod
+    def _paths(x: typing.Any) -> typing.Generator[tuple[str, ...], None, None]:
+        match x:
+            case Expr() as e:
+                yield from e._get_paths()
+            case str() as s:
+                for m in re.finditer("\0([a-z\\-_.]*)\0", s):
+                    yield tuple(m[1].split("."))
+            case dict():
+                for k, v in x.items():
+                    yield from Expr._paths(k)
+                    yield from Expr._paths(v)
+            case list():
+                for i in x:
+                    yield from Expr._paths(i)
+            case _:
+                return
 
     def __str__(self) -> str:
-        if self._emit_error():
-            return "<error>"
-        return f"${{{{ {self._value} }}}}"
+        return f"${{{{ {self._syntax} }}}}"
 
-    def _as_operand(self, op_index: int) -> str:
-        if self._op_index > op_index:
-            return f"({self._value})"
-        return self._value
+    def _as_operand(self, op_precedence: int) -> str:
+        if self._precedence > op_precedence:
+            return f"({self._syntax})"
+        return self._syntax
 
-    @classmethod
-    def _syntax(cls, v: Any, op_index: int | None = None) -> str:
-        match v:
-            case Expr() as e if op_index is not None:
-                return e._as_operand(op_index)
-            case Expr() as e:
-                return e._value
-            case str() as s:
-                return f"'{s.replace("'", "''")}'"
-            case _:
-                return str(v)
+    def _operand_from(self, e: "Expr") -> str:
+        return e._as_operand(self._precedence)
 
-    @classmethod
-    def _binop(cls, lhs: Any, rhs: Any, op: str) -> Self:
-        op_index = _ops[op]
-        return Expr(
-            f"{cls._syntax(lhs, op_index)}{op}{cls._syntax(rhs, op_index)}",
-            _op_index=op_index,
-            _field_access_error=None,  # for the moment let's allow attributes on binops
-        )
+    @staticmethod
+    def _coerce(x: typing.Any) -> "Expr":
+        if isinstance(x, Expr):
+            return x
+        return LiteralExpr(x)
 
-    def __and__(self, other: Any) -> Self:
-        return self._emit_error() or self._binop(self, other, " && ")
+    def __and__(self, other: typing.Any) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), "&&")
 
-    def __rand__(self, other: Any) -> Self:
-        return self._emit_error() or self._binop(other, self, " && ")
+    def __rand__(self, other: typing.Any) -> "Expr":
+        return BinOpExpr(self._coerce(other), self, "&&")
 
-    def __or__(self, other: Any) -> Self:
-        return self._emit_error() or self._binop(self, other, " || ")
+    def __or__(self, other: typing.Any) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), "||")
 
-    def __ror__(self, other: Any) -> Self:
-        return self._emit_error() or self._binop(other, self, " || ")
+    def __ror__(self, other: typing.Any) -> "Expr":
+        return BinOpExpr(self._coerce(other), self, "||")
 
-    def __invert__(self) -> Self:
-        op_index = _ops["!"]
-        return self._emit_error() or Expr(
-            f"!{self._as_operand(op_index)}", _op_index=op_index
-        )
+    def __invert__(self) -> "Expr":
+        return NotExpr(self)
 
-    def __eq__(self, other: Any) -> Self:
-        return self._emit_error() or self._binop(self, other, " == ")
+    def __eq__(self, other: typing.Any) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), "==")
 
-    def __ne__(self, other: Any) -> Self:
-        return self._emit_error() or self._binop(self, other, " != ")
+    def __ne__(self, other: typing.Any) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), "!=")
 
-    def __le__(self, other) -> Self:
-        return self._emit_error() or self._binop(self, other, " <= ")
+    def __le__(self, other) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), "<=")
 
-    def __lt__(self, other) -> Self:
-        return self._emit_error() or self._binop(self, other, " < ")
+    def __lt__(self, other) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), "<")
 
-    def __ge__(self, other) -> Self:
-        return self._emit_error() or self._binop(self, other, " >= ")
+    def __ge__(self, other) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), ">=")
 
-    def __gt__(self, other) -> Self:
-        return self._emit_error() or self._binop(self, other, " > ")
+    def __gt__(self, other) -> "Expr":
+        return BinOpExpr(self, self._coerce(other), ">")
 
-    def __getitem__(self, key: Any) -> Self:
-        op_index = _ops["[]"]
-        return self._emit_error() or Expr(
-            f"{self._as_operand(op_index)}[{self._syntax(key, op_index)}]",
-            _op_index=op_index,
-            _field_access_error=None,
-        )
+    def __getitem__(self, key: typing.Any) -> "Expr":
+        return ItemExpr(self, self._coerce(key))
 
     def __getattr__(self, key: str) -> typing.Self:
+        if key == "_":
+            return DotExpr(self, "*")
         if key.startswith("_"):
             raise AttributeError(key)
-        if self._emit_error():
-            return self
-        if self._field_access_error is not None:
-            return ~Expr(
-                _error=f"`{key}` not available in `{self._value}`{self._field_access_error}",
-            )
-        op_index = _ops["."]
-        return Expr(f"{self._as_operand(op_index)}.{key}", _op_index=_ops["."])
+        return DotExpr(self, key)
 
-    def __bool__(self) -> bool:
-        if self._emit_error() is None:
-            _current_on_error(
-                "e cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
-            )
-        return True
-
-
-@dataclasses.dataclass
-class Context(_ContextMixin, Expr):
-    _inactive_error: str | None = None
-
-    def __post_init__(self):
-        self._error = self._inactive_error
-
-    def _clear(self):
-        self._error = self._inactive_error
-        self._fields.clear()
-
-    def _activate(self, field: str | None = None):
-        cls = type(self)
-        self._error = None
-        if field:
-            match getattr(cls, field, None):
-                case Inactive() as f:
-                    f.activate(self)
-                case None:
-                    raise AttributeError(f"{cls.__name__} has no field `{field}`")
-
-    @property
-    def ALL(self) -> Expr:
-        return self._emit_error() or Expr(f"{self._value}.*")
-
-
-@dataclasses.dataclass
-class MapContext[T](Context):
-    def __init__(
-        self, fieldcls: type[T] = Expr, value: str = None, *args: Any, **kwargs: Any
-    ):
-        super().__init__(value, **kwargs)
-        self._fields = {}
-        self._fieldcls = fieldcls
-        self._args = args
-        self._free = False
-
-    def _clear(self):
-        super()._clear()
-        self._free = False
-
-    def __getattr__(self, item) -> T:
-        if item.startswith("_"):
-            raise AttributeError(item)
-        if self._free:
-            self._activate(item)
-        try:
-            return self._fields[item]
-        except KeyError:
-            return super().__getattr__(item)
-
-    def _activate(self, field: str | None = None):
-        super()._activate()
-        if field:
-            value = self._fieldcls(f"{self._value}.{field}", *self._args)
-            self._fields[field] = value
-
-    def _activate_all(self):
-        self._activate()
-        self._free = True
-
-    def _has(self, field: str) -> bool:
-        return self._free or field in self._fields
-
-    @property
-    def ALL(self) -> T:
-        return self._emit_error() or self._fieldcls(
-            f"{self._value}.*",
-            *self._args,
+    def __bool__(self):
+        _current_on_error(
+            f"expression {self._syntax} cannot be coerced to bool: did you mean to use `&` for `and` or `|` for `or`?",
         )
-
-
-@dataclasses.dataclass
-class ContextGroup(_ContextMixin):
-    def __post_init__(self):
-        # trigger instantiation of all descriptors
-        for a in type(self).__dict__:
-            _ = getattr(self, a)
-
-    def clear(self):
-        for f in self._fields.values():
-            f._clear()
-
-    def activate(self):
-        for f in self._fields.values():
-            f._activate()
-
-
-class Inactive[T]:
-    def __init__(self, cls: type[T] = Expr, *args: Any, **kwargs: Any):
-        assert issubclass(cls, Expr)
-        self.descriptor = cls(*args, **kwargs)
-
-    def __set_name__(self, owner: type[Context], name: str):
-        self.descriptor.__set_name__(owner, name)
-
-    def __get__(self, instance: _ContextMixin, owner: type) -> T:
-        if instance is None:
-            return self
-        assert isinstance(instance, Context)
-        if self.descriptor._value not in instance._fields:
-            return instance.__getattr__(self.descriptor._value)
-        return instance._fields[self.descriptor._value]
-
-    def activate(self, instance: Context):
-        self.descriptor.__get__(instance, type(instance))
+        return True
 
 
 type Value[T] = Expr | T
 
 
-def _default_on_error(message: str) -> None:
+instantiate = Expr._instantiate
+
+
+def reftree(x: typing.Any) -> RefTree:
+    ret = {}
+    for path in Expr._paths(x):
+        r = ret
+        for segment in path:
+            r = r.setdefault(segment, {})
+    return ret
+
+
+@dataclasses.dataclass(frozen=True, eq=False, unsafe_hash=True)
+class RefExpr(Expr):
+    _segments: tuple[str, ...]
+    _child_factory: typing.Callable[[str], typing.Self] | None = None
+    _callable: typing.Callable | None = None
+
+    _store: typing.ClassVar[dict[tuple[str, ...], weakref.ReferenceType["RefExpr"]]] = (
+        {}
+    )
+
+    @classmethod
+    def _get(cls, *args: str) -> typing.Optional["RefExpr"]:
+        return cls._store.get(args, lambda: None)()
+
+    def __new__(cls, *args: str, **kwargs: typing.Any):
+        ref = cls._get(*args)
+        if ref is not None:
+            assert isinstance(
+                ref, cls
+            ), f"{type(ref).__name__}({", ".join(map(repr, args))}) was created before this {cls.__name__}"
+            return ref
+        cls._store.pop(args, None)
+        instance = super().__new__(cls)
+        cls._store[args] = weakref.ref(instance)
+        return instance
+
+    def __init__(self, *args: str):
+        super().__init__()
+        object.__setattr__(self, "_segments", args)
+
+    def __call__(self, *args, **kwargs):
+        if not self._callable:
+            raise TypeError("'RefCall' object is not callable")
+        return self._callable(*args, **kwargs)
+
+    @property
+    def _path(self) -> str:
+        return ".".join(self._segments)
+
+    @property
+    def _syntax(self) -> str:
+        return f"\0{self._path}\0"
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield self._segments
+
+    def __getattr__(self, name) -> Expr:
+        if name == "_":
+            if self._child_factory:
+                return self._child_factory("*")
+            return DotExpr(self, "*")
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if self._child_factory:
+            return self._child_factory(name)
+        return ~ErrorExpr(f"`{name}` not available in `{self._path}`")
+
+
+class Var:
+    def __init__(self, name: str = None):
+        self._name = name
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def _get_child_specs(self) -> typing.Generator[tuple[str, "Var"], None, None]:
+        return ((k, d) for k, d in type(self).__dict__.items() if isinstance(d, Var))
+
+    def _instantiate_child(self, parent: RefExpr | None, name: str | None = None):
+        name = name or self._name
+        if parent is None:
+            ret = RefExpr(name)
+        else:
+            ret = RefExpr(*parent._segments, name)
+        for k, d in self._get_child_specs():
+            if k == "_":
+                child_factory = lambda key, d=d: d._instantiate_child(ret, key)
+                object.__setattr__(ret, "_child_factory", child_factory)
+            else:
+                object.__setattr__(ret, d._name, d._instantiate_child(ret))
+        if "__call__" in type(self).__dict__:
+            object.__setattr__(ret, "_callable", self.__call__)
+        return ret
+
+    def __get__(self, instance: RefExpr | None, owner: type) -> typing.Self:
+        return self._instantiate_child(instance)
+
+
+class SimpleMap(Var):
+    _ = Var()
+
+
+_op_precedence = (
+    ("[]",),
+    ("!",),
+    ("<", "<=", ">", ">=", "==", "!="),
+    ("&&",),
+    ("||",),
+)
+_op_precedence = {op: i for i, ops in enumerate(_op_precedence) for op in ops}
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class LiteralExpr[T](Expr):
+    _value: T
+
+    @property
+    def _syntax(self) -> str:
+        if isinstance(self._value, str):
+            return f"'{self._value.replace("'", "''")}'"
+        return repr(self._value)
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class BinOpExpr(Expr):
+    _left: Expr
+    _right: Expr
+    _op: str
+
+    @property
+    def _precedence(self) -> int:
+        return _op_precedence[self._op]
+
+    @property
+    def _syntax(self) -> str:
+        return f"{self._operand_from(self._left)} {self._op} {self._operand_from(self._right)}"
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._left._get_paths()
+        yield from self._right._get_paths()
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class NotExpr(Expr):
+    _expr: Expr
+
+    @property
+    def _precedence(self) -> int:
+        return _op_precedence["!"]
+
+    @property
+    def _syntax(self) -> str:
+        return f"!{self._operand_from(self._expr)}"
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._expr._get_paths()
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class ItemExpr(Expr):
+    _expr: Expr
+    _index: Expr
+
+    @property
+    def _precedence(self) -> int:
+        return _op_precedence["[]"]
+
+    @property
+    def _syntax(self) -> str:
+        return f"{self._operand_from(self._expr)}[{self._index._syntax}]"
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._expr._get_paths()
+        yield from self._index._get_paths()
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class DotExpr(Expr):
+    _expr: Expr
+    _attr: str
+
+    @property
+    def _syntax(self) -> str:
+        return f"{self._operand_from(self._expr)}.{self._attr}"
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        yield from self._expr._get_paths()
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class CallExpr(Expr):
+    _function: str
+    _args: tuple[Expr, ...]
+
+    def __init__(self, function: str, *args: Expr):
+        super().__init__()
+        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "_args", args)
+
+    @property
+    def _syntax(self) -> str:
+        return f"{self._function}({', '.join(a._syntax for a in self._args)})"
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        for a in self._args:
+            yield from a._get_paths()
+
+
+@dataclasses.dataclass
+class ProxyExpr(Expr):
+    _expr: Expr
+
+    @property
+    def _syntax(self) -> str:
+        return self._expr._syntax
+
+    def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
+        return self._expr._get_paths()
+
+
+@dataclasses.dataclass
+class ErrorExpr(Expr):
+    _error: str | typing.Callable[[], str]
+    _emitted: bool = False
+
+    def _emit(self) -> typing.Self:
+        if not self._emitted:
+            if callable(self._error):
+                self._error = self._error()
+            _current_on_error(self._error)
+            self._emitted = True
+        return self
+
+    @property
+    def _syntax(self) -> str:
+        self._emit()
+        e: Expr = CallExpr("error", self._coerce(self._error))
+        return e._syntax
+
+    def __and__(self, other: typing.Any) -> Expr:
+        return self._emit()
+
+    def __rand__(self, other: typing.Any) -> Expr:
+        return self._emit()
+
+    def __or__(self, other: typing.Any) -> Expr:
+        return self._emit()
+
+    def __ror__(self, other: typing.Any) -> Expr:
+        return self._emit()
+
+    def __invert__(self) -> Expr:
+        return self._emit()
+
+    def __eq__(self, other: typing.Any) -> Expr:
+        return self._emit()
+
+    def __ne__(self, other: typing.Any) -> Expr:
+        return self._emit()
+
+    def __le__(self, other) -> Expr:
+        return self._emit()
+
+    def __lt__(self, other) -> Expr:
+        return self._emit()
+
+    def __ge__(self, other) -> Expr:
+        return self._emit()
+
+    def __gt__(self, other) -> Expr:
+        return self._emit()
+
+    def __getitem__(self, key: typing.Any) -> Expr:
+        return self._emit()
+
+    def __getattr__(self, key: str) -> Expr:
+        if key.startswith("_"):
+            raise AttributeError(key)
+        return self._emit()
+
+
+def function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
+    def ret(*args: Expr, **kwargs: typing.Any) -> Expr:
+        if kwargs:
+            return ~ErrorExpr(
+                f"unexpected keyword arguments to `{name}`, expected {nargs} positional arguments",
+            )
+        if len(args) != nargs:
+            return ~ErrorExpr(
+                f"wrong number of arguments to `{name}`, expected {nargs}, got {len(args)}"
+            )
+        return CallExpr(name, *(Expr._coerce(a) for a in args))
+
+    return ret
+
+
+def _current_on_error(message: str) -> None:
     raise ValueError(message)
-
-
-_current_on_error = _default_on_error
 
 
 @contextlib.contextmanager
 def on_error(handler: typing.Callable[[str], typing.Any]):
     global _current_on_error
+    old_error = _current_on_error
     _current_on_error = handler
     try:
         yield
     finally:
-        _current_on_error = _default_on_error
-
-
-def expr_function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
-    def ret(*args: Expr, **kwargs: Any) -> Expr:
-        if len(args) != nargs:
-            return ~Expr(
-                _error=f"wrong number of arguments to `{name}`, expected {nargs}, got {len(args)}",
-            )
-        if kwargs:
-            return ~Expr(
-                _error=f"unexpected keyword arguments to `{name}`, expected {nargs} positional arguments",
-            )
-        return Expr(f"{name}({', '.join(Expr._syntax(a) for a in args)})")
-
-    return ret
+        _current_on_error = old_error

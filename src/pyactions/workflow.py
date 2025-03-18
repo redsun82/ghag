@@ -3,7 +3,7 @@ import typing
 
 from .element import Element
 from typing import Any, cast
-from .expr import Value, Expr
+from .expr import Value, Expr, ProxyExpr, RefExpr, instantiate
 from dataclasses import field
 from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.comments import CommentedMap
@@ -39,11 +39,11 @@ class Input[T](Element):
             raise ValueError(f"unexpected input type `{self.type}`")
 
 
-class InputProxy(Expr):
+class InputProxy(ProxyExpr):
     proxied: list[Input] = dataclasses.field(default_factory=list)
 
     def __init__(self, key: str, *proxied: Input):
-        super().__init__(f"inputs.{key}")
+        super().__init__(RefExpr("inputs", key))
         self.proxied = list(proxied)
 
     def __setattr__(self, name, value):
@@ -243,7 +243,7 @@ class Step(Element):
         ret = super().asdict()
         ret.pop("outputs", None)
         if isinstance(self.if_, Expr):
-            ret["if"] = self.if_._value
+            ret["if"] = instantiate(self.if_._syntax)
         ret = CommentedMap(ret)
         ret.fa.set_block_style()
         return ret

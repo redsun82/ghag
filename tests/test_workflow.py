@@ -560,7 +560,7 @@ jobs:
 def test_steps_array():
     @job
     def j():
-        step(steps.ALL.result)
+        step(steps._.result)
 
 
 @expect(
