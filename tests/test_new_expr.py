@@ -69,9 +69,9 @@ def test_no_bool():
 
 def test_simple_context():
     class Contexts:
-        class X(RefExpr):
-            a = RefExpr()
-            b = RefExpr()
+        class X(Var):
+            a = Var()
+            b = Var()
 
         x = X()
 
@@ -96,13 +96,13 @@ def test_simple_context():
 
 def test_nested_context():
     class Contexts:
-        class X(RefExpr):
-            a = RefExpr()
-            b = RefExpr()
+        class X(Var):
+            a = Var()
+            b = Var()
 
-            class Y(RefExpr):
-                c = RefExpr()
-                d = RefExpr()
+            class Y(Var):
+                c = Var()
+                d = Var()
 
             y = Y()
 
@@ -131,19 +131,20 @@ def test_nested_context():
 
 def test_map_context():
     class Contexts:
-        class X(RefExpr):
-            a = RefExpr()
+        class X[T](Var):
+            a = Var()
 
-            class B(RefExpr):
-                _ = RefExpr()
+            class B(Var):
+                _ = Var()
 
             b = B()
 
-            class Y(RefExpr):
-                foo = RefExpr()
-                bar = RefExpr()
+            class Y(Var):
+                foo = Var()
+                bar = Var()
 
             _ = Y()
+            __getattr__: typing.Callable[[str], Y]  # for IDE completion
 
         x = X()
 

@@ -135,9 +135,6 @@ class RefExpr(Expr):
         return cls._store.get(args, lambda: None)()
 
     def __new__(cls, *args: str, **kwargs: typing.Any):
-        if not args:
-            # descriptor!
-            return _ContextDescriptor(cls)
         ref = cls._get(*args)
         if ref is not None:
             assert isinstance(
@@ -176,34 +173,32 @@ class RefExpr(Expr):
         return ~ErrorExpr(f"`{name}` not available in `{self._path}`")
 
 
-class _ContextDescriptor:
-    def __init__(self, original_cls: typing.Any, name: str = None):
-        self._original_cls = original_cls
+class Var:
+    def __init__(self, name: str = None):
         self._name = name
 
     def __set_name__(self, owner, name):
         self._name = name
 
-    def __get__(self, instance: typing.Optional["RefExpr"], owner: typing.Any = None):
-        if instance is None:
-            ret = RefExpr(self._name)
+    def _get_child_specs(self) -> typing.Generator[tuple[str, "Var"], None, None]:
+        return ((k, d) for k, d in type(self).__dict__.items() if isinstance(d, Var))
+
+    def _instantiate_child(self, parent: RefExpr | None, name: str | None = None):
+        name = name or self._name
+        if parent is None:
+            ret = RefExpr(name)
         else:
-            ret = RefExpr(*instance._segments, self._name)
-        for k, d in self._original_cls.__dict__.items():
-            if not isinstance(d, _ContextDescriptor):
-                continue
+            ret = RefExpr(*parent._segments, name)
+        for k, d in self._get_child_specs():
             if k == "_":
-                child_factory = lambda key, d=d: _ContextDescriptor(
-                    d._original_cls, key
-                ).__get__(ret)
+                child_factory = lambda key, d=d: d._instantiate_child(ret, key)
                 object.__setattr__(ret, "_child_factory", child_factory)
             else:
-                object.__setattr__(ret, d._name, d.__get__(ret))
+                object.__setattr__(ret, d._name, d._instantiate_child(ret))
         return ret
 
-
-class Mapping[T]:
-    def __getattr__(self, item) -> T: ...
+    def __get__(self, instance: RefExpr | None, owner: type) -> typing.Self:
+        return self._instantiate_child(instance)
 
 
 _op_precedence = (
@@ -371,26 +366,6 @@ class ErrorExpr(Expr):
         if key.startswith("_"):
             raise AttributeError(key)
         return self._emit()
-
-
-type ContextStructure = dict[str, typing.Optional["ContextStructure"]]
-
-
-class Var[T]:
-    def __set_name__(self, owner, name):
-        if not hasattr(owner, "_fields"):
-            owner._fields = {}
-        owner._fields[name] = self
-        self._name = name
-
-    def _instantiate(self, *prefix: str) -> T:
-        ret = RigidRefExpr(*prefix, self._name)
-        for f, d in getattr(self, "_fields", {}).items():
-            object.__setattr__(ret, f, d._instantiate(*prefix, self._name))
-        return ret
-
-    def __get__(self, instance, owner) -> T:
-        return self._instantiate()
 
 
 def function(name: str, nargs: int = 1) -> typing.Callable[..., Expr]:
