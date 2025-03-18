@@ -102,7 +102,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pyactions"
+name = "gag"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

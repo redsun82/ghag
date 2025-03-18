@@ -3,8 +3,8 @@ import sys
 
 import pytest
 
-from src.pyactions.ctx import workflow, GenerationError
-from src.pyactions import generate
+from src.gag.ctx import workflow, GenerationError
+from src.gag import generate
 import pathlib
 import inspect
 import dis

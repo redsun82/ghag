@@ -2,8 +2,8 @@ import unittest.mock
 
 import pytest
 
-from src.pyactions.rules import *
-from src.pyactions.expr import *
+from src.gag.rules import *
+from src.gag.expr import *
 
 
 class Contexts:
