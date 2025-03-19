@@ -351,21 +351,21 @@ class _JobUpdaters(_Updaters):
 
 class _ContextRules(RuleSet):
     @rule(_Context.steps)
-    def validate_steps(self):
+    def validate(self):
         return _ctx.check(
             _ctx.current_job,
             "`steps` can only be used in a job, did you forget a `@job` decoration?",
         )
 
     @rule(_Context.steps._)
-    def validate_step_id(self, id: str):
+    def validate(self, id: str):
         return _ctx.check(
             any(s.id == id for s in _ctx.current_job.steps),
             f"step `{id}` not defined in job `{_ctx.current_job_id}`",
         )
 
     @rule(_Context.steps._.outputs._)
-    def validate_step_outputs(self, id: str, output: str):
+    def validate(self, id: str, output: str):
         step = next(s for s in _ctx.current_job.steps if s.id == id)
         return _ctx.check(
             step.outputs and step.outputs and output in step.outputs,
@@ -373,7 +373,7 @@ class _ContextRules(RuleSet):
         )
 
     @rule(_Context.matrix)
-    def validate_matrix(self):
+    def validate(self):
         return _ctx.check(
             _ctx.current_job
             and _ctx.current_job.strategy is not None
@@ -382,7 +382,7 @@ class _ContextRules(RuleSet):
         )
 
     @rule(_Context.matrix._)
-    def validate_matrix_id(self, id):
+    def validate(self, id):
         m = _ctx.current_job.strategy.matrix
         if not isinstance(m, Matrix):
             # don't try to be smart if using something like an Expr
@@ -396,25 +396,25 @@ class _ContextRules(RuleSet):
         )
 
     @rule(_Context.job)
-    def validate_job(self):
+    def validate(self):
         return _ctx.check(_ctx.current_job, "`job` can only be used in a job")
 
     @rule(_Context.job.container)
-    def validate_job_container(self):
+    def validate(self):
         return _ctx.check(
             _ctx.current_job.container,
             "`job.container` can only be used in a containerized job",
         )
 
     @rule(_Context.job.services)
-    def validate_job_services(self):
+    def validate(self):
         return _ctx.check(
             _ctx.current_job.services,
             "`job.services` can only be used in a job with services",
         )
 
     @rule(_Context.job.services._)
-    def validate_job_service_id(self, id):
+    def validate(self, id):
         return _ctx.check(
             id in _ctx.current_job.services,
             f"no `{id}` service defined in `job.services`",
@@ -422,7 +422,7 @@ class _ContextRules(RuleSet):
 
     def validate(self, value: typing.Any):
         refs = reftree(value)
-        self.apply(refs)
+        super().validate(refs)
 
 
 _ctx = _Context()

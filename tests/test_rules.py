@@ -32,23 +32,23 @@ class X(RuleSet):
         self.mock = unittest.mock.Mock()
 
     @rule(x)
-    def on_x(self, *args, **kwargs):
+    def v(self, *args, **kwargs):
         return self.mock.x(*args, **kwargs)
 
     @rule(x.y)
-    def on_xy(self, *args, **kwargs):
+    def v(self, *args, **kwargs):
         return self.mock.xy(*args, **kwargs)
 
     @rule(x.z)
-    def on_xz(self, *args, **kwargs):
+    def v(self, *args, **kwargs):
         return self.mock.xz(*args, **kwargs)
 
     @rule(x.z._.a)
-    def on_xz_a(self, *args, **kwargs):
+    def v(self, *args, **kwargs):
         return self.mock.xz_a(*args, **kwargs)
 
     @rule(x.z._.a._)
-    def on_xz_a_(self, *args, **kwargs):
+    def v(self, *args, **kwargs):
         return self.mock.xz_a_(*args, **kwargs)
 
 
@@ -61,7 +61,7 @@ def sut():
 
 
 def test_rules_pass(sut):
-    assert sut.apply({"x": {"y": {}}})
+    assert sut.validate({"x": {"y": {}}})
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xy(),
@@ -70,14 +70,14 @@ def test_rules_pass(sut):
 
 def test_rules_fail_at_start(sut):
     sut.mock.x.return_value = False
-    assert not sut.apply({"x": {"y": {}}})
+    assert not sut.validate({"x": {"y": {}}})
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
     ]
 
 
 def test_rules_pass_for_unrelated(sut):
-    assert sut.apply({"x": {"a": {}}})
+    assert sut.validate({"x": {"a": {}}})
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
     ]
@@ -86,7 +86,7 @@ def test_rules_pass_for_unrelated(sut):
 def test_rules_fail_at_first_sibling(sut):
     sut.mock.xy.return_value = False
     sut.mock.xz.return_value = False
-    assert not sut.apply({"x": {"y": {}, "z": {}}})
+    assert not sut.validate({"x": {"y": {}, "z": {}}})
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xy(),
@@ -94,7 +94,7 @@ def test_rules_fail_at_first_sibling(sut):
 
 
 def test_rules_pass_with_kwargs(sut):
-    assert sut.apply({"x": {"y": {}}}, foo=1, bar=2)
+    assert sut.validate({"x": {"y": {}}}, foo=1, bar=2)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(foo=1, bar=2),
         unittest.mock.call.xy(foo=1, bar=2),
@@ -102,7 +102,7 @@ def test_rules_pass_with_kwargs(sut):
 
 
 def test_rules_pass_with_one_placeholder(sut):
-    assert sut.apply({"x": {"z": {"foo": {"a": {}}}}})
+    assert sut.validate({"x": {"z": {"foo": {"a": {}}}}})
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xz(),
@@ -111,7 +111,7 @@ def test_rules_pass_with_one_placeholder(sut):
 
 
 def test_rules_pass_with_two_placeholders(sut):
-    assert sut.apply({"x": {"z": {"foo": {"a": {"bar": {}}}}}})
+    assert sut.validate({"x": {"z": {"foo": {"a": {"bar": {}}}}}})
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xz(),

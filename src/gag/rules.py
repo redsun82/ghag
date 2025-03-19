@@ -1,28 +1,44 @@
-import abc
-import dataclasses
 import typing
 
 from .types import RefTree
-from .expr import RefExpr, Var
+from .expr import RefExpr
 
 
-def rule(e: RefExpr | Var):
+def rule(e: RefExpr):
     def decorator(f):
-        f.rule_path = e._segments
+        assert callable(f)
+        f.rule = e._segments
         return f
 
     return decorator
 
 
-@dataclasses.dataclass
-class RuleSet(abc.ABC):
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls._rules = {}
-        for f in cls.__dict__.values():
-            if callable(f) and hasattr(f, "rule_path"):
-                cls._rules.setdefault(len(f.rule_path), []).append((f.rule_path, f))
+class _RulesDict(dict):
+    def __init__(self):
+        super().__init__()
+        self.rules = []
 
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        rule = getattr(value, "rule", None)
+        if rule is not None:
+            self.rules.append((rule, value))
+
+
+class _RuleSetMetaclass(type):
+    @classmethod
+    def __prepare__(metacls, name, bases):
+        return _RulesDict()
+
+    def __new__(cls, name, bases, classdict):
+        ret = super().__new__(cls, name, bases, dict(classdict))
+        ret._rules = {}
+        for r, func in classdict.rules:
+            ret._rules.setdefault(len(r), []).append((r, func))
+        return ret
+
+
+class RuleSet(metaclass=_RuleSetMetaclass):
     @staticmethod
     def _match(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> tuple[str, ...] | None:
         ret = ()
@@ -42,7 +58,7 @@ class RuleSet(abc.ABC):
             if k != "*":
                 yield from RuleSet._traverse_reftree(rest, prefix + (k,))
 
-    def apply(self, reftree: RefTree, **kwargs: typing.Any) -> bool:
+    def validate(self, reftree: RefTree, **kwargs: typing.Any) -> bool:
         for path in self._traverse_reftree(reftree):
             for rule, func in self._rules.get(len(path), ()):
                 m = self._match(path, rule)
