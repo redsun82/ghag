@@ -65,12 +65,13 @@ def test_no_bool():
 
 
 def test_simple_context():
+    @contexts
     class Contexts:
-        class X(Var):
-            a = Var()
-            b = Var()
+        class X(RefExpr):
+            b: RefExpr
+            a: RefExpr
 
-        x = X()
+        x: X
 
     x = Contexts.x
 
@@ -94,15 +95,16 @@ def test_simple_context():
 def test_context_with_call_operator():
     m = unittest.mock.Mock()
 
+    @contexts
     class Contexts:
-        class X(Var):
-            a = Var()
-            b = Var()
+        class X(RefExpr):
+            a: RefExpr
+            b: RefExpr
 
             def __call__(self, *args, **kwargs):
                 m(*args, **kwargs)
 
-        x = X()
+        x: X
 
     x = Contexts.x
     x(1, 2, 3, a=4, b=5)
@@ -110,18 +112,19 @@ def test_context_with_call_operator():
 
 
 def test_nested_context():
+    @contexts
     class Contexts:
-        class X(Var):
-            a = Var()
-            b = Var()
+        class X(RefExpr):
+            a: RefExpr
+            b: RefExpr
 
-            class Y(Var):
-                c = Var()
-                d = Var()
+            class Y(RefExpr):
+                c: RefExpr
+                d: RefExpr
 
-            y = Y()
+            y: Y
 
-        x = X()
+        x: X
 
     x = Contexts.x
 
@@ -145,23 +148,19 @@ def test_nested_context():
 
 
 def test_map_context():
+    @contexts
     class Contexts:
-        class X[T](Var):
-            a = Var()
+        class X(RefExpr):
+            a: RefExpr
+            b: FlatMap
 
-            class B(Var):
-                _ = Var()
+            class Y(RefExpr):
+                foo: RefExpr
+                bar: RefExpr
 
-            b = B()
+            __getattr__: Map[Y]
 
-            class Y(Var):
-                foo = Var()
-                bar = Var()
-
-            _ = Y()
-            __getattr__: typing.Callable[[str], Y]  # for IDE completion
-
-        x = X()
+        x: X
 
     x = Contexts.x
 

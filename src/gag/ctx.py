@@ -7,7 +7,7 @@ import dataclasses
 import threading
 import pathlib
 
-from .expr import Expr, on_error, Var, SimpleMap, ErrorExpr, function, reftree
+from .expr import Expr, on_error, contexts, FlatMap, Map, ErrorExpr, function, reftree
 from . import workflow, element
 from .workflow import *
 from .rules import RuleSet, rule
@@ -45,43 +45,36 @@ def _get_user_frame_info() -> inspect.Traceback:
     return inspect.getframeinfo(_get_user_frame())
 
 
-@dataclass
-class _Context(threading.local):
-    current_workflow: Workflow | None = None
-    current_job: Job | None = None
-    current_workflow_id: str | None = None
-    current_job_id: str | None = None
-    auto_job_reason: str | None = None
-    errors: list[Error] = field(default_factory=list)
+@contexts
+class _Contexts:
+    class Steps(RefExpr):
+        class Step(RefExpr):
+            outputs: FlatMap
+            result: RefExpr
+            outcome: RefExpr
 
-    class Steps(Var):
-        class Step(Var):
-            outputs = SimpleMap()
-            result = Var()
-            outcome = Var()
+        __getattr__: Map[Step]
 
-        _ = Step()
+    steps: Steps
+    matrix: FlatMap
 
-    steps = Steps()
-    matrix = SimpleMap()
+    class Job(RefExpr):
+        class Container(RefExpr):
+            id: RefExpr
+            network: RefExpr
 
-    class Job(Var):
-        class Container(Var):
-            id = Var()
-            network = Var()
+        container: Container
 
-        container = Container()
+        class Services(RefExpr):
+            class Service(RefExpr):
+                id: RefExpr
+                network: RefExpr
+                ports: RefExpr
 
-        class Services(Var):
-            class Service(Var):
-                id = Var()
-                network = Var()
-                ports = Var()
+            __getattr__: Map[Service]
 
-            _ = Service()
-
-        services = Services()
-        status = Var()
+        services: Services
+        status: RefExpr
 
         # we want `job` to be both the context and the decorator to describe jobs
         # forward the decoration usage
@@ -93,7 +86,22 @@ class _Context(threading.local):
         ) -> typing.Callable[["JobCall"], Expr] | Expr:
             return _interpret_job(func, id=id)
 
-    job = Job()
+    job: Job
+
+
+steps = _Contexts.steps
+matrix = _Contexts.matrix
+job = _Contexts.job
+
+
+@dataclass
+class _Context(threading.local):
+    current_workflow: Workflow | None = None
+    current_job: Job | None = None
+    current_workflow_id: str | None = None
+    current_job_id: str | None = None
+    auto_job_reason: str | None = None
+    errors: list[Error] = field(default_factory=list)
 
     rules: "_ContextRules" = field(default_factory=lambda: _ContextRules())
 
@@ -350,21 +358,21 @@ class _JobUpdaters(_Updaters):
 
 
 class _ContextRules(RuleSet):
-    @rule(_Context.steps)
+    @rule(steps)
     def validate(self):
         return _ctx.check(
             _ctx.current_job,
             "`steps` can only be used in a job, did you forget a `@job` decoration?",
         )
 
-    @rule(_Context.steps._)
+    @rule(steps._)
     def validate(self, id: str):
         return _ctx.check(
             any(s.id == id for s in _ctx.current_job.steps),
             f"step `{id}` not defined in job `{_ctx.current_job_id}`",
         )
 
-    @rule(_Context.steps._.outputs._)
+    @rule(steps._.outputs._)
     def validate(self, id: str, output: str):
         step = next(s for s in _ctx.current_job.steps if s.id == id)
         return _ctx.check(
@@ -372,7 +380,7 @@ class _ContextRules(RuleSet):
             f"`{output}` was not declared in step `{id}`, use `returns()` declare it",
         )
 
-    @rule(_Context.matrix)
+    @rule(matrix)
     def validate(self):
         return _ctx.check(
             _ctx.current_job
@@ -381,7 +389,7 @@ class _ContextRules(RuleSet):
             "`matrix` can only be used in a matrix job",
         )
 
-    @rule(_Context.matrix._)
+    @rule(matrix._)
     def validate(self, id):
         m = _ctx.current_job.strategy.matrix
         if not isinstance(m, Matrix):
@@ -395,34 +403,34 @@ class _ContextRules(RuleSet):
             f"`{id}` was not declared in the `matrix` for this job",
         )
 
-    @rule(_Context.job)
+    @rule(job)
     def validate(self):
         return _ctx.check(_ctx.current_job, "`job` can only be used in a job")
 
-    @rule(_Context.job.container)
+    @rule(job.container)
     def validate(self):
         return _ctx.check(
             _ctx.current_job.container,
             "`job.container` can only be used in a containerized job",
         )
 
-    @rule(_Context.job.services)
+    @rule(job.services)
     def validate(self):
         return _ctx.check(
             _ctx.current_job.services,
             "`job.services` can only be used in a job with services",
         )
 
-    @rule(_Context.job.services._)
+    @rule(job.services._)
     def validate(self, id):
         return _ctx.check(
             id in _ctx.current_job.services,
             f"no `{id}` service defined in `job.services`",
         )
 
-    def validate(self, value: typing.Any):
+    def validate(self, value: typing.Any) -> bool:
         refs = reftree(value)
-        super().validate(refs)
+        return super().validate(refs)
 
 
 _ctx = _Context()
@@ -609,8 +617,6 @@ def _interpret_job(
         )
 
 
-job: _Context.Job = _Context.job
-
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
 env = _WorkflowOrJobUpdaters.env
@@ -630,9 +636,6 @@ def input(key: str, *args, **kwargs) -> InputProxy:
 strategy = _JobUpdaters.strategy
 container = _JobUpdaters.container
 service = _JobUpdaters.service
-
-steps = _Context.steps
-matrix = _Context.matrix
 
 
 @dataclass

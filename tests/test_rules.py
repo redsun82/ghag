@@ -6,22 +6,20 @@ from src.gag.rules import *
 from src.gag.expr import *
 
 
+@contexts
 class Contexts:
-    class X(Var):
-        y = Var()
+    class X(RefExpr):
+        y: RefExpr
 
-        class Z(Var):
-            class ZZ(Var):
-                class A(Var):
-                    _ = Var()
+        class Z(RefExpr):
+            class ZZ(RefExpr):
+                a: FlatMap
 
-                a = A()
+            __getattr__: Map[ZZ]
 
-            _ = ZZ()
+        z: Z
 
-        z = Z()
-
-    x = X()
+    x: X
 
 
 x = Contexts.x

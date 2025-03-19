@@ -1,5 +1,6 @@
 import dataclasses
 import abc
+import functools
 import re
 import typing
 import weakref
@@ -136,7 +137,7 @@ def reftree(x: typing.Any) -> RefTree:
     return ret
 
 
-@dataclasses.dataclass(frozen=True, eq=False, unsafe_hash=True)
+@dataclasses.dataclass(frozen=True, eq=False)
 class RefExpr(Expr):
     _segments: tuple[str, ...]
     _child_factory: typing.Callable[[str], typing.Self] | None = None
@@ -151,16 +152,18 @@ class RefExpr(Expr):
         return cls._store.get(args, lambda: None)()
 
     def __new__(cls, *args: str, **kwargs: typing.Any):
-        ref = cls._get(*args)
-        if ref is not None:
+        # for some reason local variables here pollute PyCharm's autocomplete, use `_` prefix to
+        # avoid that
+        _ref = cls._get(*args)
+        if _ref is not None:
             assert isinstance(
-                ref, cls
-            ), f"{type(ref).__name__}({", ".join(map(repr, args))}) was created before this {cls.__name__}"
-            return ref
+                _ref, cls
+            ), f"{type(_ref).__name__}({", ".join(map(repr, args))}) was created before this {cls.__name__}"
+            return _ref
         cls._store.pop(args, None)
-        instance = super().__new__(cls)
-        cls._store[args] = weakref.ref(instance)
-        return instance
+        _instance = super().__new__(cls)
+        cls._store[args] = weakref.ref(_instance)
+        return _instance
 
     def __init__(self, *args: str):
         super().__init__()
@@ -194,38 +197,52 @@ class RefExpr(Expr):
         return ~ErrorExpr(f"`{name}` not available in `{self._path}`")
 
 
-class Var:
-    def __init__(self, name: str = None):
-        self._name = name
+def contexts[T](cls: type[T]) -> type[T]:
+    def process(ref, annotation):
+        if annotation is RefExpr:
+            return
 
-    def __set_name__(self, owner, name):
-        self._name = name
+        def child_factory(key: str, a: type) -> RefExpr:
+            ret = RefExpr(*ref._segments, key)
+            process(ret, a)
+            return ret
 
-    def _get_child_specs(self) -> typing.Generator[tuple[str, "Var"], None, None]:
-        return ((k, d) for k, d in type(self).__dict__.items() if isinstance(d, Var))
-
-    def _instantiate_child(self, parent: RefExpr | None, name: str | None = None):
-        name = name or self._name
-        if parent is None:
-            ret = RefExpr(name)
-        else:
-            ret = RefExpr(*parent._segments, name)
-        for k, d in self._get_child_specs():
-            if k == "_":
-                child_factory = lambda key, d=d: d._instantiate_child(ret, key)
-                object.__setattr__(ret, "_child_factory", child_factory)
+        for f, a in annotation.__annotations__.items():
+            # for mappings we use a `Map` annotation to `__getattr__` which will be picked up by some type checkers
+            # (notably pylance in VSCode, while PyCharm doesn't seem to pick that up yet)
+            if f == "__getattr__":
+                assert typing.get_origin(a) is Map
+                (child_annotation,) = typing.get_args(a)
+                object.__setattr__(
+                    ref,
+                    "_child_factory",
+                    functools.partial(child_factory, a=child_annotation),
+                )
             else:
-                object.__setattr__(ret, d._name, d._instantiate_child(ret))
-        if "__call__" in type(self).__dict__:
-            object.__setattr__(ret, "_callable", self.__call__)
-        return ret
+                object.__setattr__(ref, f, child_factory(f, a))
+        call_operator = getattr(annotation, "__call__", None)
+        if call_operator:
+            object.__setattr__(
+                ref,
+                "_callable",
+                lambda *args, **kwargs: call_operator(ref, *args, **kwargs),
+            )
 
-    def __get__(self, instance: RefExpr | None, owner: type) -> typing.Self:
-        return self._instantiate_child(instance)
+    class Root:
+        _segments = ()
+
+    root = Root()
+    process(root, cls)
+    for f, v in root.__dict__.items():
+        setattr(cls, f, v)
+    return cls
 
 
-class SimpleMap(Var):
-    _ = Var()
+type Map[T] = typing.Callable[[str], T]
+
+
+class FlatMap(RefExpr):
+    __getattr__: Map[RefExpr]
 
 
 _op_precedence = (
