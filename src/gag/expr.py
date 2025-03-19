@@ -14,18 +14,23 @@ class Expr(abc.ABC):
     @property
     def _syntax(self) -> str: ...
 
+    @property
+    def _formula(self) -> str:
+        """Returns the syntax of this `Expr` with ref markers removed"""
+        return self._syntax.replace("\0", "")
+
     def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
         yield from ()
 
     @staticmethod
     def _instantiate(x: typing.Any) -> typing.Any:
         match x:
-            case Expr() as e:
-                return str(e).replace("\0", "")
-            case str() as s:
-                return s.replace("\0", "")
+            case Expr() | str():
+                return str(x).replace("\0", "")
             case dict():
-                return {k: Expr._instantiate(v) for k, v in x.items()}
+                return {
+                    Expr._instantiate(k): Expr._instantiate(v) for k, v in x.items()
+                }
             case list():
                 return [Expr._instantiate(i) for i in x]
             case _:

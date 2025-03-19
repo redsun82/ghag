@@ -243,7 +243,7 @@ class Step(Element):
         ret = super().asdict()
         ret.pop("outputs", None)
         if isinstance(self.if_, Expr):
-            ret["if"] = instantiate(self.if_._syntax)
+            ret["if"] = self.if_._formula
         ret = CommentedMap(ret)
         ret.fa.set_block_style()
         return ret
