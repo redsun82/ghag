@@ -1,16 +1,11 @@
 import contextlib
 import inspect
 import itertools
-import typing
-from dataclasses import dataclass, fields, asdict, field
-import dataclasses
-import threading
+from dataclasses import dataclass, fields, asdict
 import pathlib
 
 from .expr import Expr, on_error, contexts, FlatMap, Map, ErrorExpr, function, reftree
 from . import workflow, element
-from .workflow import *
-from .rules import RuleSet, rule
 from .contexts import *
 
 
@@ -47,18 +42,9 @@ def _get_user_frame_info() -> inspect.Traceback:
 
 
 @dataclass
-class _Context(threading.local):
-    current_workflow: Workflow | None = None
-    current_job: Job | None = None
-    current_workflow_id: str | None = None
-    current_job_id: str | None = None
+class _Context(ContextBase):
     auto_job_reason: str | None = None
     errors: list[Error] = field(default_factory=list)
-
-    rules: "_ContextRules" = field(default_factory=lambda: _ContextRules())
-
-    def validate(self, value: typing.Any):
-        self.rules.validate(value)
 
     def reset(self):
         self.reset_job()
@@ -307,82 +293,6 @@ class _JobUpdaters(_Updaters):
     container = ContainerUpdater(Container)
 
     service = _MapUpdater(Container)
-
-
-class _ContextRules(RuleSet):
-    @rule(steps)
-    def validate(self):
-        return _ctx.check(
-            _ctx.current_job,
-            "`steps` can only be used in a job, did you forget a `@job` decoration?",
-        )
-
-    @rule(steps._)
-    def validate(self, id: str):
-        return _ctx.check(
-            any(s.id == id for s in _ctx.current_job.steps),
-            f"step `{id}` not defined in job `{_ctx.current_job_id}`",
-        )
-
-    @rule(steps._.outputs._)
-    def validate(self, id: str, output: str):
-        step = next(s for s in _ctx.current_job.steps if s.id == id)
-        return _ctx.check(
-            step.outputs and step.outputs and output in step.outputs,
-            f"`{output}` was not declared in step `{id}`, use `returns()` declare it",
-        )
-
-    @rule(matrix)
-    def validate(self):
-        return _ctx.check(
-            _ctx.current_job
-            and _ctx.current_job.strategy is not None
-            and _ctx.current_job.strategy.matrix is not None,
-            "`matrix` can only be used in a matrix job",
-        )
-
-    @rule(matrix._)
-    def validate(self, id):
-        m = _ctx.current_job.strategy.matrix
-        if not isinstance(m, Matrix):
-            # don't try to be smart if using something like an Expr
-            return True
-        return _ctx.check(
-            m.values
-            and id in m.values
-            or m.include
-            and any(id in include for include in m.include),
-            f"`{id}` was not declared in the `matrix` for this job",
-        )
-
-    @rule(job)
-    def validate(self):
-        return _ctx.check(_ctx.current_job, "`job` can only be used in a job")
-
-    @rule(job.container)
-    def validate(self):
-        return _ctx.check(
-            _ctx.current_job.container,
-            "`job.container` can only be used in a containerized job",
-        )
-
-    @rule(job.services)
-    def validate(self):
-        return _ctx.check(
-            _ctx.current_job.services,
-            "`job.services` can only be used in a job with services",
-        )
-
-    @rule(job.services._)
-    def validate(self, id):
-        return _ctx.check(
-            id in _ctx.current_job.services,
-            f"no `{id}` service defined in `job.services`",
-        )
-
-    def validate(self, value: typing.Any) -> bool:
-        refs = reftree(value)
-        return super().validate(refs)
 
 
 _ctx = _Context()

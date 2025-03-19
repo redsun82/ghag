@@ -1,7 +1,7 @@
 import typing
 
 from .types import RefTree
-from .expr import RefExpr
+from .expr import RefExpr, reftree
 
 
 def rule(e: RefExpr):
@@ -26,6 +26,8 @@ class _RulesDict(dict):
 
 
 class _RuleSetMetaclass(type):
+    _rules: dict[int, list[tuple[tuple[str, ...], typing.Callable]]]
+
     @classmethod
     def __prepare__(metacls, name, bases):
         return _RulesDict()
@@ -33,6 +35,9 @@ class _RuleSetMetaclass(type):
     def __new__(cls, name, bases, classdict):
         ret = super().__new__(cls, name, bases, dict(classdict))
         ret._rules = {}
+        for base in bases:
+            if isinstance(base, cls):
+                ret._rules |= base._rules
         for r, func in classdict.rules:
             ret._rules.setdefault(len(r), []).append((r, func))
         return ret
@@ -58,8 +63,9 @@ class RuleSet(metaclass=_RuleSetMetaclass):
             if k != "*":
                 yield from RuleSet._traverse_reftree(rest, prefix + (k,))
 
-    def validate(self, reftree: RefTree, **kwargs: typing.Any) -> bool:
-        for path in self._traverse_reftree(reftree):
+    def validate(self, value: typing.Any, **kwargs: typing.Any) -> bool:
+        tree = reftree(value)
+        for path in self._traverse_reftree(tree):
             for rule, func in self._rules.get(len(path), ()):
                 m = self._match(path, rule)
                 if m is not None:

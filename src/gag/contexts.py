@@ -1,4 +1,8 @@
+import threading
+
 from .expr import contexts, RefExpr, Map, FlatMap
+from .rules import *
+from .workflow import *
 
 
 @contexts
@@ -38,3 +42,80 @@ class _Contexts:
 steps = _Contexts.steps
 matrix = _Contexts.matrix
 job = _Contexts.job
+
+
+@dataclasses.dataclass
+class ContextBase(threading.local, RuleSet):
+    current_workflow: Workflow | None = None
+    current_job: Job | None = None
+    current_workflow_id: str | None = None
+    current_job_id: str | None = None
+
+    def check(self, cond: typing.Any, message: str) -> bool:
+        raise NotImplemented
+
+    @rule(steps)
+    def v(self):
+        return self.check(
+            self.current_job,
+            "`steps` can only be used in a job, did you forget a `@job` decoration?",
+        )
+
+    @rule(steps._)
+    def v(self, id: str):
+        return self.check(
+            any(s.id == id for s in self.current_job.steps),
+            f"step `{id}` not defined in job `{self.current_job_id}`",
+        )
+
+    @rule(steps._.outputs._)
+    def v(self, id: str, output: str):
+        step = next(s for s in self.current_job.steps if s.id == id)
+        return self.check(
+            step.outputs and step.outputs and output in step.outputs,
+            f"`{output}` was not declared in step `{id}`, use `returns()` declare it",
+        )
+
+    @rule(matrix)
+    def v(self):
+        return self.check(
+            self.current_job
+            and self.current_job.strategy is not None
+            and self.current_job.strategy.matrix is not None,
+            "`matrix` can only be used in a matrix job",
+        )
+
+    @rule(matrix._)
+    def v(self, id):
+        m = self.current_job.strategy.matrix
+        # don't try to be smart if using something like an Expr
+        return not isinstance(m, Matrix) or self.check(
+            (m.values and id in m.values)
+            or (m.include and any(id in include for include in m.include)),
+            f"`{id}` was not declared in the `matrix` for this job",
+        )
+
+    @rule(job)
+    def v(self):
+        return self.check(self.current_job, "`job` can only be used in a job")
+
+    @rule(job.container)
+    def v(self):
+        return self.check(
+            self.current_job.container,
+            "`job.container` can only be used in a containerized job",
+        )
+
+    @rule(job.services)
+    def v(self):
+        return self.check(
+            self.current_job.services,
+            "`job.services` can only be used in a job with services",
+        )
+
+    @rule(job.services._)
+    def v(self, id):
+        return self.check(
+            id in self.current_job.services,
+            f"no `{id}` service defined in `job.services`",
+        )

@@ -9,6 +9,7 @@ from src.gag.expr import *
 @contexts
 class Contexts:
     class X(RefExpr):
+        a: RefExpr
         y: RefExpr
 
         class Z(RefExpr):
@@ -59,7 +60,7 @@ def sut():
 
 
 def test_rules_pass(sut):
-    assert sut.validate({"x": {"y": {}}})
+    assert sut.validate(x.y)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xy(),
@@ -68,14 +69,14 @@ def test_rules_pass(sut):
 
 def test_rules_fail_at_start(sut):
     sut.mock.x.return_value = False
-    assert not sut.validate({"x": {"y": {}}})
+    assert not sut.validate(x & x.y)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
     ]
 
 
 def test_rules_pass_for_unrelated(sut):
-    assert sut.validate({"x": {"a": {}}})
+    assert sut.validate(f"<{x.a}>")
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
     ]
@@ -84,7 +85,7 @@ def test_rules_pass_for_unrelated(sut):
 def test_rules_fail_at_first_sibling(sut):
     sut.mock.xy.return_value = False
     sut.mock.xz.return_value = False
-    assert not sut.validate({"x": {"y": {}, "z": {}}})
+    assert not sut.validate(x.y | x.z)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xy(),
@@ -92,7 +93,7 @@ def test_rules_fail_at_first_sibling(sut):
 
 
 def test_rules_pass_with_kwargs(sut):
-    assert sut.validate({"x": {"y": {}}}, foo=1, bar=2)
+    assert sut.validate(x.y, foo=1, bar=2)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(foo=1, bar=2),
         unittest.mock.call.xy(foo=1, bar=2),
@@ -100,7 +101,7 @@ def test_rules_pass_with_kwargs(sut):
 
 
 def test_rules_pass_with_one_placeholder(sut):
-    assert sut.validate({"x": {"z": {"foo": {"a": {}}}}})
+    assert sut.validate(x.z.foo.a)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xz(),
@@ -109,7 +110,7 @@ def test_rules_pass_with_one_placeholder(sut):
 
 
 def test_rules_pass_with_two_placeholders(sut):
-    assert sut.validate({"x": {"z": {"foo": {"a": {"bar": {}}}}}})
+    assert sut.validate(x.z.foo.a.bar)
     assert sut.mock.mock_calls == [
         unittest.mock.call.x(),
         unittest.mock.call.xz(),
