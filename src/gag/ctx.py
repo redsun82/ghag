@@ -11,6 +11,7 @@ from .expr import Expr, on_error, contexts, FlatMap, Map, ErrorExpr, function, r
 from . import workflow, element
 from .workflow import *
 from .rules import RuleSet, rule
+from .contexts import *
 
 
 @dataclass
@@ -43,55 +44,6 @@ def _get_user_frame() -> typing.Any:
 
 def _get_user_frame_info() -> inspect.Traceback:
     return inspect.getframeinfo(_get_user_frame())
-
-
-@contexts
-class _Contexts:
-    class Steps(RefExpr):
-        class Step(RefExpr):
-            outputs: FlatMap
-            result: RefExpr
-            outcome: RefExpr
-
-        __getattr__: Map[Step]
-
-    steps: Steps
-    matrix: FlatMap
-
-    class Job(RefExpr):
-        class Container(RefExpr):
-            id: RefExpr
-            network: RefExpr
-
-        container: Container
-
-        class Services(RefExpr):
-            class Service(RefExpr):
-                id: RefExpr
-                network: RefExpr
-                ports: RefExpr
-
-            __getattr__: Map[Service]
-
-        services: Services
-        status: RefExpr
-
-        # we want `job` to be both the context and the decorator to describe jobs
-        # forward the decoration usage
-        def __call__(
-            self,
-            func: typing.Union["JobCall", None] = None,
-            *,
-            id: str | None = None,
-        ) -> typing.Callable[["JobCall"], Expr] | Expr:
-            return _interpret_job(func, id=id)
-
-    job: Job
-
-
-steps = _Contexts.steps
-matrix = _Contexts.matrix
-job = _Contexts.job
 
 
 @dataclass
@@ -616,6 +568,8 @@ def _interpret_job(
             f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
         )
 
+
+job._make_callable(_interpret_job)
 
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on

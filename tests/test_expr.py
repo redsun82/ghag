@@ -101,12 +101,10 @@ def test_context_with_call_operator():
             a: RefExpr
             b: RefExpr
 
-            def __call__(self, *args, **kwargs):
-                m(*args, **kwargs)
-
         x: X
 
     x = Contexts.x
+    x._make_callable(m)
     x(1, 2, 3, a=4, b=5)
     assert m.mock_calls == [unittest.mock.call(1, 2, 3, a=4, b=5)]
 

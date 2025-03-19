@@ -169,6 +169,10 @@ class RefExpr(Expr):
         super().__init__()
         object.__setattr__(self, "_segments", args)
 
+    def _make_callable(self, func: typing.Callable):
+        assert callable(func)
+        object.__setattr__(self, "_callable", func)
+
     def __call__(self, *args, **kwargs):
         if not self._callable:
             raise TypeError("'RefCall' object is not callable")
