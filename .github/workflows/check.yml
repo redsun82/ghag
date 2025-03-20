@@ -6,10 +6,10 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-    - name: Setup uv
-      uses: astral-sh/setup-uv@v5
     - name: Checkout
       uses: actions/checkout@v4
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v5
     - name: Check formatting
       run: uv run black --check .
     - name: Run tests
