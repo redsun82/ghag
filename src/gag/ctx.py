@@ -661,5 +661,6 @@ run = step.run
 use = step.uses
 
 always = function("always", 0)
+cancelled = function("cancelled", 0)
 fromJson = function("fromJson")
 contains = function("contains", 2)
