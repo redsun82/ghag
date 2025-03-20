@@ -15,3 +15,6 @@ jobs:
     - name: Run tests
       if: '!cancelled()'
       run: uv run pytest
+    - name: Check generation
+      if: '!cancelled()'
+      run: uv run gag --check

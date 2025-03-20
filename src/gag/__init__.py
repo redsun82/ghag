@@ -4,6 +4,7 @@ import logging
 import sys
 import typing
 import pathlib
+import difflib
 
 from ruamel.yaml import YAML, CommentedMap
 
@@ -15,14 +16,37 @@ yaml = YAML()
 yaml.default_flow_style = None
 
 
-def generate_workflow(w: WorkflowInfo, dir: pathlib.Path) -> pathlib.Path:
+class DiffError(Exception):
+    def __init__(self, diff):
+        super().__init__("generated workflow does not match expected")
+        self.errors = diff
+
+
+def generate_workflow(
+    w: WorkflowInfo, dir: pathlib.Path, check=False
+) -> pathlib.Path | None:
     input = f"{w.file.name}::{w.spec.__name__}"
     output = (dir / w.id).with_suffix(".yml")
+    tmp = output.with_suffix(".yml.tmp")
     w = w.instantiate().asdict()
     w = CommentedMap(w)
     w.yaml_set_start_comment(f"generated from {input}")
-    with open(output, "w") as out:
+    with open(tmp, "w") as out:
         yaml.dump(w, out)
+    if check:
+        if output.exists():
+            with open(output) as current:
+                current = [*current]
+        else:
+            current = []
+        with open(tmp) as new:
+            new = [*new]
+        diff = list(difflib.unified_diff(current, new, str(output), str(tmp)))
+        if diff:
+            raise DiffError([l.rstrip("\n") for l in diff])
+        tmp.unlink()
+    else:
+        tmp.rename(output)
     return output
 
 
@@ -61,7 +85,7 @@ def generate(opts: argparse.Namespace):
     for i in inputs:
         logging.debug(f"@ {i}")
         for f in i.glob("*.py"):
-            logging.debug(f"<- {f}")
+            logging.debug(f"← {f}")
             spec = importlib.util.spec_from_file_location(f.name, str(f))
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -69,9 +93,11 @@ def generate(opts: argparse.Namespace):
                 if isinstance(v, WorkflowInfo):
                     found = True
                     try:
-                        output = generate_workflow(v, opts.output_directory)
-                        logging.info(f"-> {output}")
-                    except GenerationError as e:
+                        output = generate_workflow(
+                            v, opts.output_directory, check=opts.check
+                        )
+                        logging.info(f"{'✅' if opts.check else '→'} {output}")
+                    except (GenerationError, DiffError) as e:
                         failed = True
                         for error in e.errors:
                             logging.error(error)
@@ -110,6 +136,7 @@ def options(args: typing.Sequence[str] = None):
             help="input directories to process",
             type=relativized_path,
         )
+        parser.add_argument("--check", "-C", action="store_true")
 
     common_opts(p)
     p.set_defaults(command=generate)

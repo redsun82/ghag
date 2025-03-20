@@ -8,3 +8,4 @@ def check():
     step("Checkout").uses("actions/checkout@v4")
     step("Check formatting").run("uv run black --check .")
     step("Run tests").run("uv run pytest").if_(~cancelled())
+    step("Check generation").run("uv run gag --check").if_(~cancelled())
