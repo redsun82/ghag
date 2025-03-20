@@ -4,7 +4,7 @@ import sys
 import pytest
 
 from src.gag.ctx import workflow, GenerationError
-from src.gag import generate
+from src.gag import generate_workflow
 import pathlib
 import inspect
 import dis
@@ -53,7 +53,7 @@ def expect(expected: str | None = None):
     def decorator(f):
         def wrapper(pytestconfig: pytest.Config):
             wf = workflow(f)
-            output = generate(wf, pathlib.Path(inspect.getfile(f)).parent)
+            output = generate_workflow(wf, pathlib.Path(inspect.getfile(f)).parent)
             with open(output) as out:
                 actual = [l.rstrip("\n") for l in out]
             if expected is None or pytestconfig.getoption("--learn"):
@@ -77,7 +77,7 @@ def expect_errors(func):
     def wrapper(request: pytest.FixtureRequest):
         wf = workflow(lambda: func(error), id=func.__name__)
         with pytest.raises(GenerationError) as e:
-            generate(wf, pathlib.Path(request.node.path.parent))
+            generate_workflow(wf, pathlib.Path(request.node.path.parent))
         actual = {}
         for err in e.value.errors:
             assert (

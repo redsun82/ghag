@@ -230,6 +230,7 @@ class _WorkflowUpdaters(_Updaters):
 
     class OnUpdater(_Updater):
         pull_request = _Updater(PullRequest)
+        push = _Updater(Push)
 
         class WorkflowDispatchUpdater(_Updater):
             input = _MapUpdater(Input)
@@ -353,6 +354,7 @@ class WorkflowInfo:
     spec: typing.Callable[..., None]
     inputs: dict[str, Input]
     errors: list[Error]
+    file: pathlib.Path
 
     def instantiate(self) -> Workflow:
         with _ctx.build_workflow(self.id) as wf:
@@ -403,8 +405,9 @@ def workflow(
                 _ctx.error(f"{e.args[0]} for workflow parameter `{key}`", detached=True)
             )
             inputs[key] = None
-
-    return WorkflowInfo(id, func, inputs, errors)
+    return WorkflowInfo(
+        id, func, inputs, errors, file=pathlib.Path(inspect.getfile(func))
+    )
 
 
 type JobResult = dict[str, Value[str]] | Expr | tuple[Expr, ...] | None
@@ -522,24 +525,14 @@ class _StepUpdater:
 
     def _ensure_run_step(self) -> typing.Self:
         ret = self._ensure_step()
-        match ret._step:
-            case RunStep():
-                pass
-            case UseStep():
-                assert False, "cannot turn a `use` step into a `run` one"
-            case _:
-                ret.steps[-1] = RunStep(**asdict(ret._step))
+        if ret._step.uses or ret._step.with_:
+            _ctx.error("cannot turn a `use` step into a `run` one")
         return ret
 
     def _ensure_use_step(self) -> typing.Self:
         ret = self._ensure_step()
-        match ret._step:
-            case RunStep():
-                assert False, "cannot turn a `run` step into a `use` one"
-            case UseStep():
-                pass
-            case _:
-                ret.steps[-1] = UseStep(**asdict(ret._step))
+        if ret._step.run or ret._step.env:
+            _ctx.error("cannot turn a `run` step into a `use` one")
         return ret
 
     def id(self, id: str) -> typing.Self:
@@ -577,10 +570,10 @@ class _StepUpdater:
         ret._step.run = code
         return ret
 
-    def use(self, source: Value[str], **kwargs):
+    def uses(self, source: Value[str], **kwargs):
         ret = self._ensure_use_step()
         _ctx.validate(source)
-        ret._step.use = source
+        ret._step.uses = source
         if kwargs:
             ret.with_(kwargs)
         return ret
@@ -629,7 +622,7 @@ class _StepUpdater:
             (id for id in (f"{prefix}-{i}" for i in itertools.count(1)) if is_free(id))
         )
 
-    def _ensure_id(self) -> str:
+    def ensure_id(self) -> str:
         if self._step and self._step.id is not None:
             return self._step.id
         frame = _get_user_frame()
@@ -645,27 +638,28 @@ class _StepUpdater:
     def outputs(self):
         if self._step is None:
             raise AttributeError("outputs")
-        id = self._ensure_id()
+        id = self.ensure_id()
         return getattr(steps, id).outputs
 
     @property
     def outcome(self):
         if self._step is None:
             raise AttributeError("outcome")
-        id = self._ensure_id()
+        id = self.ensure_id()
         return getattr(steps, id).outcome
 
     @property
     def result(self):
         if self._step is None:
             raise AttributeError("result")
-        id = self._ensure_id()
+        id = self.ensure_id()
         return getattr(steps, id).result
 
 
 step = _StepUpdater()
 run = step.run
-use = step.use
+use = step.uses
 
 always = function("always", 0)
 fromJson = function("fromJson")
+contains = function("contains", 2)

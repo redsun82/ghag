@@ -6,6 +6,7 @@ from src.gag.ctx import *
 
 @expect(
     """
+# generated from test_workflow.py::test_basic
 name: My workflow
 on:
   pull_request:
@@ -22,6 +23,7 @@ def test_basic():
 
 @expect(
     """
+# generated from test_workflow.py::test_name_from_docstring
 name: My workflow
 on:
   workflow_dispatch: {}
@@ -35,6 +37,7 @@ def test_name_from_docstring():
 
 @expect(
     """
+# generated from test_workflow.py::test_pull_request
 on:
   pull_request:
     types: [opened, reopened]
@@ -57,6 +60,7 @@ def test_pull_request():
 
 @expect(
     """
+# generated from test_workflow.py::test_merge
 on:
   pull_request:
     branches: [main]
@@ -71,6 +75,7 @@ def test_merge():
 
 @expect(
     """
+# generated from test_workflow.py::test_job
 on:
   workflow_dispatch: {}
 jobs:
@@ -91,6 +96,7 @@ def test_job():
 
 @expect(
     """
+# generated from test_workflow.py::test_job_name_from_docstring
 on:
   workflow_dispatch: {}
 jobs:
@@ -111,6 +117,7 @@ def test_job_name_from_docstring():
 
 @expect(
     """
+# generated from test_workflow.py::test_jobs
 on:
   workflow_dispatch: {}
 jobs:
@@ -140,6 +147,7 @@ def test_jobs():
 
 @expect(
     """
+# generated from test_workflow.py::test_job_runs_on
 on:
   workflow_dispatch: {}
 jobs:
@@ -156,6 +164,7 @@ def test_job_runs_on():
 
 @expect(
     """
+# generated from test_workflow.py::test_strategy_with_cross_matrix
 on: {}
 jobs:
   a_job:
@@ -177,6 +186,7 @@ def test_strategy_with_cross_matrix():
 
 @expect(
     """
+# generated from test_workflow.py::test_strategy_with_include_exclude_matrix
 on: {}
 jobs:
   a_job:
@@ -207,6 +217,7 @@ def test_strategy_with_include_exclude_matrix():
 
 @expect(
     """
+# generated from test_workflow.py::test_strategy_with_fail_fast_and_max_parallel
 on: {}
 jobs:
   a_job:
@@ -230,6 +241,7 @@ def test_strategy_with_fail_fast_and_max_parallel():
 
 @expect(
     """
+# generated from test_workflow.py::test_strategy_in_workflow
 on:
   workflow_dispatch: {}
 jobs:
@@ -252,6 +264,7 @@ def test_strategy_in_workflow():
 
 @expect(
     """
+# generated from test_workflow.py::test_matrix_from_input
 on:
   workflow_call:
     inputs:
@@ -265,15 +278,19 @@ jobs:
     strategy: {matrix: '${{ fromJson(inputs.i) }}'}
     steps:
     - run: ${{ matrix.foo }}, ${{ matrix.bar }}
+    - name: Fail
+      if: contains(inputs.i, 'failed')
 """
 )
 def test_matrix_from_input(i):
     strategy.matrix(fromJson(i))
     run(f"{matrix.foo}, {matrix.bar}")
+    step("Fail").if_(contains(i, "failed"))
 
 
 @expect(
     """
+# generated from test_workflow.py::test_runs_on_in_workflow
 on:
   workflow_dispatch: {}
 env: {WORKFLOW_ENV: 1}
@@ -292,6 +309,7 @@ def test_runs_on_in_workflow():
 
 @expect(
     """
+# generated from test_workflow.py::test_runs_on_in_worfklow_with_name
 name: Foo bar
 on:
   workflow_dispatch: {}
@@ -307,6 +325,7 @@ def test_runs_on_in_worfklow_with_name():
 
 @expect(
     """
+# generated from test_workflow.py::test_steps
 on:
   workflow_dispatch: {}
 jobs:
@@ -320,11 +339,11 @@ jobs:
     - name: catastrophe
       if: failure()
       run: echo oh no
-    - use: actions/checkout@v4
+    - uses: actions/checkout@v4
       with: {ref: dev}
-    - use: ./my_action
+    - uses: ./my_action
       with: {arg1: foo, arg2: bar}
-    - use: ./my_other_action
+    - uses: ./my_other_action
       with: {arg1: foo, arg2: bar}
     - continue-on-error: true
       run: one
@@ -340,7 +359,7 @@ def test_steps():
         step.run("echo hello").name("salutations")
         run("echo $WHO").env(WHO="world")
         step("catastrophe").run("echo oh no").if_("failure()")
-        step.use("actions/checkout@v4").with_(ref="dev")
+        step.uses("actions/checkout@v4").with_(ref="dev")
         use("./my_action").with_(arg1="foo", arg2="bar")
         use("./my_other_action", arg1="foo", arg2="bar")
         run("one").continue_on_error()
@@ -349,6 +368,7 @@ def test_steps():
 
 @expect(
     """
+# generated from test_workflow.py::test_workflow_dispatch_inputs
 on:
   workflow_dispatch:
     inputs:
@@ -375,6 +395,7 @@ def test_workflow_dispatch_inputs():
 
 @expect(
     """
+# generated from test_workflow.py::test_workflow_call
 on:
   workflow_call:
     inputs:
@@ -403,6 +424,7 @@ def test_workflow_call():
 
 @expect(
     """
+# generated from test_workflow.py::test_inputs
 on:
   workflow_call:
     inputs:
@@ -422,6 +444,7 @@ def test_inputs():
 
 @expect(
     """
+# generated from test_workflow.py::test_trigger_removal
 on:
   workflow_call:
     inputs:
@@ -436,6 +459,7 @@ def test_trigger_removal():
 
 @expect(
     """
+# generated from test_workflow.py::test_use_input_as_expr
 on:
   workflow_call:
     inputs:
@@ -457,6 +481,7 @@ def test_use_input_as_expr():
 
 @expect(
     """
+# generated from test_workflow.py::test_inputs_from_parameters
 on:
   workflow_call:
     inputs:
@@ -498,6 +523,7 @@ def test_inputs_from_parameters(foo: int, bar, c: typing.Literal["one", "two"], 
 
 @expect(
     """
+# generated from test_workflow.py::test_id
 on: {}
 jobs:
   test_id:
@@ -549,6 +575,7 @@ def test_id():
 
 @expect(
     """
+# generated from test_workflow.py::test_steps_array
 on: {}
 jobs:
   j:
@@ -565,6 +592,7 @@ def test_steps_array():
 
 @expect(
     """
+# generated from test_workflow.py::test_if_expr
 on: {}
 jobs:
   test_if_expr:
@@ -586,6 +614,7 @@ def test_if_expr():
 
 @expect(
     """
+# generated from test_workflow.py::test_implicit_outputs
 on: {}
 jobs:
   j1:
@@ -631,6 +660,7 @@ def test_implicit_outputs():
 
 @expect(
     """
+# generated from test_workflow.py::test_needs
 on: {}
 jobs:
   j1: {runs-on: ubuntu-latest}
@@ -664,6 +694,7 @@ def test_needs():
 
 @expect(
     """
+# generated from test_workflow.py::test_job_as_context
 on: {}
 jobs:
   test_job_as_context:
@@ -681,6 +712,7 @@ def test_job_as_context():
 
 @expect(
     """
+# generated from test_workflow.py::test_container
 on: {}
 jobs:
   j1:
@@ -716,6 +748,7 @@ def test_container():
 
 @expect(
     """
+# generated from test_workflow.py::test_services
 on: {}
 jobs:
   test_services:

@@ -1,0 +1,21 @@
+# generated from check.py::check
+on:
+  pull_request: {}
+  push: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - id: step-1
+      name: Check formatting
+      continue-on-error: true
+      run: uv run black --check .
+    - id: step-2
+      name: Run tests
+      continue-on-error: true
+      run: uv run pytest
+    - name: Fail
+      if: contains(steps.*.outcome, 'failed')
+      run: exit 1

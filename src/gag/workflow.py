@@ -236,6 +236,10 @@ class Step(Element):
     name: Value[str]
     if_: Value[bool]
     continue_on_error: Value[bool]
+    run: Value[str]
+    env: dict[str, Value[str]]
+    uses: str
+    with_: dict[str, Value[str | bool | int | float]]
 
     outputs: list[str]
 
@@ -244,28 +248,14 @@ class Step(Element):
         ret.pop("outputs", None)
         if isinstance(self.if_, Expr):
             ret["if"] = self.if_._formula
-        ret = CommentedMap(ret)
-        ret.fa.set_block_style()
-        return ret
-
-
-class RunStep(Step):
-    run: Value[str]
-    env: dict[str, Value[str]]
-
-    def asdict(self) -> typing.Any:
-        ret = super().asdict()
         run = ret.get("run")
         if run and "\n" in run:
             if run[-1] != "\n":
                 run += "\n"
             ret["run"] = LiteralScalarString(run)
+        ret = CommentedMap(ret)
+        ret.fa.set_block_style()
         return ret
-
-
-class UseStep(Step):
-    use: str
-    with_: dict[str, Value[str | bool | int | float]]
 
 
 class Matrix(Element):
