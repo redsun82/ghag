@@ -339,11 +339,14 @@ jobs:
     - name: catastrophe
       if: failure()
       run: echo oh no
-    - uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
       with: {ref: dev}
-    - uses: ./my_action
+    - name: My action
+      uses: ./my_action
       with: {arg1: foo, arg2: bar}
-    - uses: ./my_other_action
+    - name: My other action
+      uses: ./my_other_action
       with: {arg1: foo, arg2: bar}
     - continue-on-error: true
       run: one

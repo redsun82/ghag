@@ -4,6 +4,8 @@ import itertools
 from dataclasses import dataclass, fields, asdict
 import pathlib
 
+import inflection
+
 from .expr import Expr, on_error, contexts, FlatMap, Map, ErrorExpr, function, reftree
 from . import workflow, element
 from .contexts import *
@@ -574,6 +576,14 @@ class _StepUpdater:
         ret = self._ensure_use_step()
         _ctx.validate(source)
         ret._step.uses = source
+        if isinstance(source, str) and not ret._step.name:
+            try:
+                _, _, action_name = source.rpartition("/")
+                action_name, _, _ = action_name.partition("@")
+                action_name = inflection.humanize(inflection.titleize(action_name))
+                ret._step.name = action_name
+            except Exception:
+                pass
         if kwargs:
             ret.with_(kwargs)
         return ret
