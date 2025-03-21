@@ -51,6 +51,16 @@ class ContextBase(threading.local, RuleSet):
     current_workflow_id: str | None = None
     current_job_id: str | None = None
 
+    def _knows_step_id(self, step: Step, id: str) -> bool:
+        if not self.current_job:
+            return False
+        for s in self.current_job.steps:
+            if s is step:
+                return False
+            if s.id == id:
+                return True
+        return False
+
     def error(self, message: str):
         raise NotImplemented
 
@@ -72,8 +82,8 @@ class ContextBase(threading.local, RuleSet):
     @rule(steps._)
     def v(self, id: str, *, step: Step | None = None, field: str | None = None):
         return self.check(
-            any(s.id == id for s in self.current_job.steps),
-            f"step `{id}` not defined in job `{self.current_job_id}`",
+            self._knows_step_id(step, id),
+            f"step `{id}` not defined yet in job `{self.current_job_id}`",
         )
 
     @rule(steps._.outputs._)

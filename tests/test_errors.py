@@ -253,13 +253,21 @@ def test_unavailable_matrix_values(error):
 
 
 @expect_errors
-def test_steps_not_allowed(error):
+def test_steps_errors(error):
 
     error("`steps` can only be used in a job, did you forget a `@job` decoration?")
     env(FOO=steps)
 
+    # fmt: off
+    error("job `j` returns `steps.z.outputs`, but step `z` is not defined in it")
     @job
+    # fmt: on
     def j():
         error("`steps` can only be used while constructing a step or setting outputs")
         env(FOO=steps)
-        run("")
+        error("step `x` not defined yet in job `j`")
+        run(f"echo {steps.x.outcome}")
+        run("").id("x")
+        error("step `y` not defined yet in job `j`")
+        step("print self outcome?").run(f" {steps.y.result}").id("y")
+        return steps.z.outputs

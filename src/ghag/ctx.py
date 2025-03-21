@@ -438,8 +438,12 @@ def _job_returns(id: str, result: JobResult):
                     f"job `{id}` returns `steps.*.outputs`, which is currently unsupported",
                 )
             case ("steps", id, "outputs"):
-                step = next(s for s in _ctx.current_job.steps if s.id == id)
-                if step.outputs:
+                step = next((s for s in _ctx.current_job.steps if s.id == id), None)
+                if step is None:
+                    _ctx.error(
+                        f"job `{_ctx.current_job_id}` returns `steps.{id}.outputs`, but step `{id}` is not defined in it",
+                    )
+                elif step.outputs:
                     _JobUpdaters.outputs(
                         (o, getattr(x, o)) for o in sorted(step.outputs)
                     )
