@@ -68,22 +68,17 @@ class _Context(ContextBase):
             and not self.auto_job_reason
         )
 
-    def error(self, message: str, detached: bool = False) -> Error:
+    def make_error(self, message: str, id: str | None = None) -> Error:
         frame = _get_user_frame_info()
-        error = Error(frame.filename, frame.lineno, self.current_workflow_id, message)
-        if detached:
-            pass
-        elif self.current_workflow:
+        return Error(frame.filename, frame.lineno, id or self.current_workflow_id, message)
+
+    def error(self, message: str):
+        error = self.make_error(message)
+        if self.current_workflow:
             self.errors.append(error)
         else:
             # raise immediately
             raise GenerationError([error])
-        return error
-
-    def check(self, cond: bool, message: str):
-        if not cond:
-            self.error(message)
-        return cond
 
     @contextlib.contextmanager
     def build_workflow(self, id: str) -> typing.Generator[Workflow, None, None]:
@@ -403,9 +398,7 @@ def workflow(
                 default=default,
             )
         except ValueError as e:
-            errors.append(
-                _ctx.error(f"{e.args[0]} for workflow parameter `{key}`", detached=True)
-            )
+            errors.append(_ctx.make_error(f"{e.args[0]} for workflow parameter `{key}`", id))
             inputs[key] = None
     return WorkflowInfo(
         id, func, inputs, errors, file=pathlib.Path(inspect.getfile(func))

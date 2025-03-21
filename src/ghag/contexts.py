@@ -51,8 +51,13 @@ class ContextBase(threading.local, RuleSet):
     current_workflow_id: str | None = None
     current_job_id: str | None = None
 
-    def check(self, cond: typing.Any, message: str) -> bool:
+    def error(self, message: str):
         raise NotImplemented
+
+    def check(self, cond: typing.Any, message: str) -> bool:
+        if not cond:
+            self.error(message)
+        return cond
 
     @rule(steps)
     def v(self):
