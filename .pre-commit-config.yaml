@@ -14,3 +14,9 @@ repos:
         entry: uv run pytest
         files: \.py$|pyproject\.toml$
         pass_filenames: false
+      - id: ghag
+        name: "generate"
+        language: system
+        entry: uv run ghag
+        files: \.py$|pyproject\.toml|\.yml$
+        pass_filenames: false
