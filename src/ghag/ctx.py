@@ -70,7 +70,9 @@ class _Context(ContextBase):
 
     def make_error(self, message: str, id: str | None = None) -> Error:
         frame = _get_user_frame_info()
-        return Error(frame.filename, frame.lineno, id or self.current_workflow_id, message)
+        return Error(
+            frame.filename, frame.lineno, id or self.current_workflow_id, message
+        )
 
     def error(self, message: str):
         error = self.make_error(message)
@@ -398,7 +400,9 @@ def workflow(
                 default=default,
             )
         except ValueError as e:
-            errors.append(_ctx.make_error(f"{e.args[0]} for workflow parameter `{key}`", id))
+            errors.append(
+                _ctx.make_error(f"{e.args[0]} for workflow parameter `{key}`", id)
+            )
             inputs[key] = None
     return WorkflowInfo(
         id, func, inputs, errors, file=pathlib.Path(inspect.getfile(func))
