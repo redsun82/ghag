@@ -60,21 +60,31 @@ class ContextBase(threading.local, RuleSet):
         return cond
 
     @rule(steps)
-    def v(self):
+    def v(self, *, step: Step | None = None, field: str | None = None):
         return self.check(
             self.current_job,
             "`steps` can only be used in a job, did you forget a `@job` decoration?",
+        ) and self.check(
+            step or field == "outputs",
+            "`steps` can only be used while constructing a step or setting outputs",
         )
 
     @rule(steps._)
-    def v(self, id: str):
+    def v(self, id: str, *, step: Step | None = None, field: str | None = None):
         return self.check(
             any(s.id == id for s in self.current_job.steps),
             f"step `{id}` not defined in job `{self.current_job_id}`",
         )
 
     @rule(steps._.outputs._)
-    def v(self, id: str, output: str):
+    def v(
+        self,
+        id: str,
+        output: str,
+        *,
+        step: Step | None = None,
+        field: str | None = None,
+    ):
         step = next(s for s in self.current_job.steps if s.id == id)
         return self.check(
             step.outputs and step.outputs and output in step.outputs,
@@ -82,7 +92,7 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(matrix)
-    def v(self):
+    def v(self, *, step: Step | None = None, field: str | None = None):
         return self.check(
             self.current_job
             and self.current_job.strategy is not None
@@ -91,7 +101,7 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(matrix._)
-    def v(self, id):
+    def v(self, id, *, step: Step | None = None, field: str | None = None):
         m = self.current_job.strategy.matrix
         # don't try to be smart if using something like an Expr
         return not isinstance(m, Matrix) or self.check(
@@ -101,25 +111,25 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(job)
-    def v(self):
+    def v(self, *, step: Step | None = None, field: str | None = None):
         return self.check(self.current_job, "`job` can only be used in a job")
 
     @rule(job.container)
-    def v(self):
+    def v(self, *, step: Step | None = None, field: str | None = None):
         return self.check(
             self.current_job.container,
             "`job.container` can only be used in a containerized job",
         )
 
     @rule(job.services)
-    def v(self):
+    def v(self, *, step: Step | None = None, field: str | None = None):
         return self.check(
             self.current_job.services,
             "`job.services` can only be used in a job with services",
         )
 
     @rule(job.services._)
-    def v(self, id):
+    def v(self, id, *, step: Step | None = None, field: str | None = None):
         return self.check(
             id in self.current_job.services,
             f"no `{id}` service defined in `job.services`",

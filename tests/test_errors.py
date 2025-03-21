@@ -243,10 +243,23 @@ def test_unavailable_matrix_values(error):
 
     @job
     def j3():
-        strategy.matrix(fromJson("{}ß"))
+        strategy.matrix(fromJson("{}"))
 
     @job
     def j4():
         strategy.matrix(x=[42])
         error("`a` was not declared in the `matrix` for this job")
         step(matrix.a)
+
+
+@expect_errors
+def test_steps_not_allowed(error):
+
+    error("`steps` can only be used in a job, did you forget a `@job` decoration?")
+    env(FOO=steps)
+
+    @job
+    def j():
+        error("`steps` can only be used while constructing a step or setting outputs")
+        env(FOO=steps)
+        run("")

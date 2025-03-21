@@ -180,7 +180,7 @@ class _Updater[**P, F]:
                 return None
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
-        self._apply(*args, **kwargs)
+        _ctx.validate(self._apply(*args, **kwargs), field=self.field)
         return self.owner if isinstance(self.owner, _Updater) else self
 
     def __get__(self, instance: typing.Any, owner: type[_Updaters]) -> typing.Self:
@@ -546,32 +546,32 @@ class _StepUpdater:
 
     def name(self, name: Value[str]) -> typing.Self:
         ret = self._ensure_step()
-        _ctx.validate(name)
+        _ctx.validate(name, step=ret._step, field="name")
         ret._step.name = name
         return ret
 
     def if_(self, condition: Value[bool]) -> typing.Self:
         ret = self._ensure_step()
-        _ctx.validate(condition)
+        _ctx.validate(condition, step=ret._step, field="if_")
         ret._step.if_ = condition
         return ret
 
     def env(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_run_step()
         value = dict(*args, **kwargs)
-        _ctx.validate(value)
+        _ctx.validate(value, step=ret._step, field="env")
         ret._step.env = (ret._step.env or {}) | value
         return ret
 
     def run(self, code: Value[str]):
         ret = self._ensure_run_step()
-        _ctx.validate(code)
+        _ctx.validate(code, step=ret._step, field="run")
         ret._step.run = code
         return ret
 
     def uses(self, source: Value[str], **kwargs):
         ret = self._ensure_use_step()
-        _ctx.validate(source)
+        _ctx.validate(source, step=ret._step, field="uses")
         ret._step.uses = source
         if isinstance(source, str) and not ret._step.name:
             try:
@@ -587,14 +587,14 @@ class _StepUpdater:
 
     def continue_on_error(self, value: Value[bool] = True) -> typing.Self:
         ret = self._ensure_step()
-        _ctx.validate(value)
+        _ctx.validate(value, step=ret._step, field="continue_on_error")
         ret._step.continue_on_error = value
         return ret
 
     def with_(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_use_step()
         value = dict(*args, **kwargs)
-        _ctx.validate(value)
+        _ctx.validate(value, step=ret._step, field="with_")
         ret._step.with_ = (ret._step.with_ or {}) | value
         return ret
 
@@ -602,7 +602,7 @@ class _StepUpdater:
         ret = self._ensure_run_step()
         outs = list(args)
         outs.extend(a for a in kwargs if a not in args)
-        _ctx.validate(kwargs)
+        _ctx.validate(kwargs, step=ret._step, field="outputs")
         ret._step.outputs = ret._step.outputs or []
         ret._step.outputs += outs
         if ret._step.id:
