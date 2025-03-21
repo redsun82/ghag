@@ -53,7 +53,12 @@ class Expr(abc.ABC):
                 for i in x:
                     yield from Expr._paths(i)
             case _:
-                return
+                try:
+                    fields = dataclasses.fields(x)
+                except TypeError:
+                    return
+                for f in fields:
+                    yield from Expr._paths(getattr(x, f.name))
 
     def __str__(self) -> str:
         return f"${{{{ {self._syntax} }}}}"

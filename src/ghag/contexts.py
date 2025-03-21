@@ -51,11 +51,11 @@ class ContextBase(threading.local, RuleSet):
     current_workflow_id: str | None = None
     current_job_id: str | None = None
 
-    def _knows_step_id(self, step: Step, id: str) -> bool:
+    def _knows_step_id(self, target: typing.Any, id: str) -> bool:
         if not self.current_job:
             return False
         for s in self.current_job.steps:
-            if s is step:
+            if s is target:
                 return False
             if s.id == id:
                 return True
@@ -70,19 +70,19 @@ class ContextBase(threading.local, RuleSet):
         return cond
 
     @rule(steps)
-    def v(self, *, step: Step | None = None, field: str | None = None):
+    def v(self, *, target: typing.Any = None, field: str | None = None):
         return self.check(
             self.current_job,
             "`steps` can only be used in a job, did you forget a `@job` decoration?",
         ) and self.check(
-            step or field == "outputs",
+            isinstance(target, Step) or field == "outputs",
             "`steps` can only be used while constructing a step or setting outputs",
         )
 
     @rule(steps._)
-    def v(self, id: str, *, step: Step | None = None, field: str | None = None):
+    def v(self, id: str, *, target: typing.Any = None, field: str | None = None):
         return self.check(
-            self._knows_step_id(step, id),
+            self._knows_step_id(target, id),
             f"step `{id}` not defined yet in job `{self.current_job_id}`",
         )
 
@@ -92,7 +92,7 @@ class ContextBase(threading.local, RuleSet):
         id: str,
         output: str,
         *,
-        step: Step | None = None,
+        target: typing.Any = None,
         field: str | None = None,
     ):
         step = next(s for s in self.current_job.steps if s.id == id)
@@ -102,16 +102,21 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(matrix)
-    def v(self, *, step: Step | None = None, field: str | None = None):
+    def v(self, *, target: typing.Any = None, field: str | None = None):
+        print(target, field)
         return self.check(
             self.current_job
             and self.current_job.strategy is not None
             and self.current_job.strategy.matrix is not None,
             "`matrix` can only be used in a matrix job",
+        ) and self.check(
+            not isinstance(target, (Strategy, Matrix))
+            or (isinstance(target, Job) and field == "strategy"),
+            "`matrix` cannot be used in the `strategy` field defining it",
         )
 
     @rule(matrix._)
-    def v(self, id, *, step: Step | None = None, field: str | None = None):
+    def v(self, id, *, target: typing.Any = None, field: str | None = None):
         m = self.current_job.strategy.matrix
         # don't try to be smart if using something like an Expr
         return not isinstance(m, Matrix) or self.check(
@@ -121,25 +126,25 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(job)
-    def v(self, *, step: Step | None = None, field: str | None = None):
+    def v(self, *, target: typing.Any = None, field: str | None = None):
         return self.check(self.current_job, "`job` can only be used in a job")
 
     @rule(job.container)
-    def v(self, *, step: Step | None = None, field: str | None = None):
+    def v(self, *, target: typing.Any = None, field: str | None = None):
         return self.check(
             self.current_job.container,
             "`job.container` can only be used in a containerized job",
         )
 
     @rule(job.services)
-    def v(self, *, step: Step | None = None, field: str | None = None):
+    def v(self, *, target: typing.Any = None, field: str | None = None):
         return self.check(
             self.current_job.services,
             "`job.services` can only be used in a job with services",
         )
 
     @rule(job.services._)
-    def v(self, id, *, step: Step | None = None, field: str | None = None):
+    def v(self, id, *, target: typing.Any = None, field: str | None = None):
         return self.check(
             id in self.current_job.services,
             f"no `{id}` service defined in `job.services`",

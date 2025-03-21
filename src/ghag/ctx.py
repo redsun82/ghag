@@ -1,6 +1,7 @@
 import contextlib
 import inspect
 import itertools
+import typing
 from dataclasses import dataclass, fields, asdict
 import pathlib
 
@@ -148,39 +149,42 @@ class _Updater[**P, F]:
         self.field = name
         self.owner = owner
 
-    def _get_parent(self):
+    def _get_parent(self) -> typing.Any:
         match self.owner:
             case _Updater():
-                return self.owner._apply()
+                return self.owner._apply()[2]
             case None:
                 assert False
             case _:
                 return self.owner.instance(self.field)
 
-    def _apply(self, *args: P.args, **kwargs: P.kwargs) -> F | None:
+    def _apply(
+        self, *args: P.args, **kwargs: P.kwargs
+    ) -> tuple[typing.Any, F | None, F | None]:
         parent = self._get_parent()
         if parent is None:
             # error already reported, return a dummy value
-            return None
-        elif (
+            return None, None, None
+        if (
             not kwargs
             and len(args) == 1
             and (isinstance(args[0], Expr) or args[0] == None)
         ):
-            setattr(parent, self.field, args[0])
-            return args[0]
+            merged = value = args[0]
         else:
             current = getattr(parent, self.field)
             try:
-                value = _merge(self.field, current, self.field_init(*args, **kwargs))
-                setattr(parent, self.field, value)
-                return value
+                value = self.field_init(*args, **kwargs)
+                merged = _merge(self.field, current, value)
             except (AssertionError, TypeError, ValueError):
                 _ctx.error(f"illegal assignment to `{self.field}`")
-                return None
+                return parent, None, current
+        setattr(parent, self.field, merged)
+        return parent, value, merged
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> typing.Self:
-        _ctx.validate(self._apply(*args, **kwargs), field=self.field)
+        parent, value, _ = self._apply(*args, **kwargs)
+        _ctx.validate(value, target=parent, field=self.field)
         return self.owner if isinstance(self.owner, _Updater) else self
 
     def __get__(self, instance: typing.Any, owner: type[_Updaters]) -> typing.Self:
@@ -306,12 +310,12 @@ def current_workflow_id() -> str | None:
     return _ctx.current_workflow_id
 
 
-def _merge[T](field: str, lhs: T | None, rhs: T | None, level: int = 0) -> T | None:
+def _merge[T](field: str, lhs: T | None, rhs: T | None, recursed=False) -> T | None:
     try:
         match (lhs, rhs):
             case None, _:
                 return rhs
-            case _, None if level == 0:
+            case _, None if not recursed:
                 return None
             case _, None:
                 return lhs
@@ -327,7 +331,10 @@ def _merge[T](field: str, lhs: T | None, rhs: T | None, level: int = 0) -> T | N
                 assert type(lhs) is type(rhs)
                 data = {
                     f.name: _merge(
-                        f.name, getattr(lhs, f.name), getattr(rhs, f.name), level + 1
+                        f.name,
+                        getattr(lhs, f.name),
+                        getattr(rhs, f.name),
+                        recursed=True,
                     )
                     for f in fields(lhs)
                 }
@@ -550,32 +557,32 @@ class _StepUpdater:
 
     def name(self, name: Value[str]) -> typing.Self:
         ret = self._ensure_step()
-        _ctx.validate(name, step=ret._step, field="name")
+        _ctx.validate(name, target=ret._step, field="name")
         ret._step.name = name
         return ret
 
     def if_(self, condition: Value[bool]) -> typing.Self:
         ret = self._ensure_step()
-        _ctx.validate(condition, step=ret._step, field="if_")
+        _ctx.validate(condition, target=ret._step, field="if_")
         ret._step.if_ = condition
         return ret
 
     def env(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_run_step()
         value = dict(*args, **kwargs)
-        _ctx.validate(value, step=ret._step, field="env")
+        _ctx.validate(value, target=ret._step, field="env")
         ret._step.env = (ret._step.env or {}) | value
         return ret
 
     def run(self, code: Value[str]):
         ret = self._ensure_run_step()
-        _ctx.validate(code, step=ret._step, field="run")
+        _ctx.validate(code, target=ret._step, field="run")
         ret._step.run = code
         return ret
 
     def uses(self, source: Value[str], **kwargs):
         ret = self._ensure_use_step()
-        _ctx.validate(source, step=ret._step, field="uses")
+        _ctx.validate(source, target=ret._step, field="uses")
         ret._step.uses = source
         if isinstance(source, str) and not ret._step.name:
             try:
@@ -591,14 +598,14 @@ class _StepUpdater:
 
     def continue_on_error(self, value: Value[bool] = True) -> typing.Self:
         ret = self._ensure_step()
-        _ctx.validate(value, step=ret._step, field="continue_on_error")
+        _ctx.validate(value, target=ret._step, field="continue_on_error")
         ret._step.continue_on_error = value
         return ret
 
     def with_(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_use_step()
         value = dict(*args, **kwargs)
-        _ctx.validate(value, step=ret._step, field="with_")
+        _ctx.validate(value, target=ret._step, field="with_")
         ret._step.with_ = (ret._step.with_ or {}) | value
         return ret
 
@@ -606,7 +613,7 @@ class _StepUpdater:
         ret = self._ensure_run_step()
         outs = list(args)
         outs.extend(a for a in kwargs if a not in args)
-        _ctx.validate(kwargs, step=ret._step, field="outputs")
+        _ctx.validate(kwargs, target=ret._step, field="outputs")
         ret._step.outputs = ret._step.outputs or []
         ret._step.outputs += outs
         if ret._step.id:

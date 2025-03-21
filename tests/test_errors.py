@@ -251,6 +251,14 @@ def test_unavailable_matrix_values(error):
         error("`a` was not declared in the `matrix` for this job")
         step(matrix.a)
 
+    @job
+    def j5():
+        error("`matrix` cannot be used in the `strategy` field defining it")
+        strategy.matrix(x=[42]).max_parallel(matrix.x)
+        error("`matrix` cannot be used in the `strategy` field defining it")
+        strategy.matrix(y=[matrix.x])
+        run("")
+
 
 @expect_errors
 def test_steps_errors(error):
