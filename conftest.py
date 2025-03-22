@@ -144,7 +144,7 @@ def pytest_unconfigure(config):
                 if expected and "\n" in expected:
                     print(f'{name}(\n    """\n{expected}\n"""\n)', file=output)
                 elif expected:
-                    print(f'{name}("{expected}")', file=output)
+                    print(f"{name}({expected!r})", file=output)
                 current = (
                     position.end_lineno + 1 if position.end_lineno else position.lineno
                 )

@@ -617,7 +617,7 @@ def test_if_expr():
 
 @expect(
     """
-# generated from test_workflow.py::test_implicit_outputs
+# generated from test_workflow.py::test_implicit_job_outputs
 on: {}
 jobs:
   j1:
@@ -637,6 +637,72 @@ jobs:
       one: ${{ steps.x.outputs.one }}
       two: ${{ steps.x.outputs.two }}
       three: ${{ steps.y.outputs.three }}
+      a: ${{ matrix.a }}
+    strategy:
+      matrix:
+        a: [1, 2, 3]
+    steps:
+    - id: x
+      name: x
+      run: |
+        echo one=a >> $GITHUB_OUTPUTS
+        echo two=b >> $GITHUB_OUTPUTS
+    - id: y
+      name: y
+      run: echo three=c >> $GITHUB_OUTPUTS
+  j3:
+    runs-on: ubuntu-latest
+    outputs:
+      one: ${{ steps.step-2.outputs.one }}
+      two: ${{ steps.step-1.outputs.two }}
+      a: ${{ matrix.a }}
+    strategy:
+      matrix:
+        a: [1, 2, 3]
+    steps:
+    - id: step-1
+      run: |
+        echo one=a >> $GITHUB_OUTPUTS
+        echo two=b >> $GITHUB_OUTPUTS
+    - id: step-2
+      run: echo one=c >> $GITHUB_OUTPUTS
+"""
+)
+def test_implicit_job_outputs():
+    @job
+    def j1():
+        x = step("x").returns(one="a", two="b")
+        outputs(x)
+
+    @job
+    def j2():
+        strategy.matrix(a=[1, 2, 3])
+        x = step("x").returns(one="a", two="b")
+        y = step("y").returns(three="c")
+        outputs(x, y, matrix.a)
+
+    @job
+    def j3():
+        strategy.matrix(a=[1, 2, 3])
+        step.returns(one="a", two="b")
+        step.returns(one="c")
+        outputs("*", matrix.a)
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_explicit_job_outputs
+on: {}
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    outputs:
+      foo: ${{ steps.x.outputs.one }}
+      bar: ${{ steps.y.outputs.three }}
+      baz: ${{ matrix.a }}
+    strategy:
+      matrix:
+        a: [1, 2, 3]
     steps:
     - id: x
       name: x
@@ -648,17 +714,72 @@ jobs:
       run: echo three=c >> $GITHUB_OUTPUTS
 """
 )
-def test_implicit_outputs():
+def test_explicit_job_outputs():
+    @job
+    def j():
+        strategy.matrix(a=[1, 2, 3])
+        x = step("x").returns(one="a", two="b")
+        y = step("y").returns(three="c")
+        outputs(foo=x.outputs.one, bar=y.outputs.three, baz=matrix.a)
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_implicit_workflow_outputs
+on: {}
+outputs: {one: '${{ jobs.j1.outputs.one }}', two: '${{ jobs.j1.outputs.two }}'}
+jobs:
+  j1:
+    runs-on: ubuntu-latest
+    outputs:
+      one: 1
+      two: 2
+  j2:
+    runs-on: ubuntu-latest
+    outputs:
+      three: 3
+"""
+)
+def test_implicit_workflow_outputs():
     @job
     def j1():
-        x = step("x").returns(one="a", two="b")
-        return x.outputs
+        outputs(one=1, two=2)
 
     @job
     def j2():
-        x = step("x").returns(one="a", two="b")
-        y = step("y").returns(three="c")
-        return x.outputs, y.outputs
+        outputs(three=3)
+
+    outputs(j1)
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_jolly_workflow_outputs
+on: {}
+outputs: {one: '${{ jobs.j1.outputs.one }}', two: '${{ jobs.j1.outputs.two }}', three: '${{
+    jobs.j2.outputs.three }}'}
+jobs:
+  j1:
+    runs-on: ubuntu-latest
+    outputs:
+      one: 1
+      two: 2
+  j2:
+    runs-on: ubuntu-latest
+    outputs:
+      three: 3
+"""
+)
+def test_jolly_workflow_outputs():
+    @job
+    def j1():
+        outputs(one=1, two=2)
+
+    @job
+    def j2():
+        outputs(three=3)
+
+    outputs("*")
 
 
 @expect(

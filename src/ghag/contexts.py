@@ -38,10 +38,22 @@ class _Contexts:
 
     job: Job
 
+    class Jobs:
+        class Job:
+            outputs: FlatMap
+            result: RefExpr
+
+        __getattr__: Map[Job]
+
+    jobs: Jobs
+    needs: Jobs
+
 
 steps = _Contexts.steps
 matrix = _Contexts.matrix
 job = _Contexts.job
+jobs = _Contexts.jobs
+needs = _Contexts.needs
 
 
 @dataclasses.dataclass

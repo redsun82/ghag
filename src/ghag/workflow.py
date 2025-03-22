@@ -325,5 +325,6 @@ class Job(Element):
 class Workflow(Element):
     name: str
     on: On = field(default_factory=On)
+    outputs: dict[str, Value]
     env: dict[str, Value]
     jobs: dict[str, Job] = field(default_factory=dict)

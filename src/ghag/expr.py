@@ -229,13 +229,6 @@ def contexts[T](cls: type[T]) -> type[T]:
                 )
             else:
                 object.__setattr__(ref, f, child_factory(f, a))
-        call_operator = getattr(annotation, "__call__", None)
-        if call_operator:
-            object.__setattr__(
-                ref,
-                "_callable",
-                lambda *args, **kwargs: call_operator(ref, *args, **kwargs),
-            )
 
     class Root:
         _segments = ()

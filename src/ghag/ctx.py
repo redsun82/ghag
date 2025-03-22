@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import inspect
 import itertools
 import typing
@@ -260,6 +261,7 @@ class _WorkflowOrJobUpdaters(_Updaters):
 
     name = _Updater(str)
     env = _Updater(dict)
+    outputs = _Updater(dict)
 
 
 class _JobUpdaters(_Updaters):
@@ -282,7 +284,6 @@ class _JobUpdaters(_Updaters):
         max_parallel = _Updater(int)
 
     strategy = StrategyUpdater(Strategy)
-    outputs = _Updater(dict)
     needs = _Updater(list)
     steps = _Updater(list)
 
@@ -416,52 +417,7 @@ def workflow(
     )
 
 
-type JobResult = dict[str, Value[str]] | Expr | tuple[Expr, ...] | None
-
-type JobCall = typing.Callable[..., JobResult]
-
-
-def _job_returns(id: str, result: JobResult):
-    match result:
-        case None:
-            return
-        case dict():
-            _JobUpdaters.outputs(result)
-            return
-        case Expr():
-            result = (result,)
-        case tuple() if all(isinstance(x, Expr) for x in result):
-            pass
-        case _:
-            _ctx.error(
-                f"unsupported return value for job `{id}`, must be `None`, a dictionary, a step `outputs` or a tuple of step `outputs`",
-            )
-            return
-    for x in result:
-        path = x._segments
-        match path:
-            case ("steps", "*", "outputs"):
-                _ctx.error(
-                    f"job `{id}` returns `steps.*.outputs`, which is currently unsupported",
-                )
-            case ("steps", id, "outputs"):
-                step = next((s for s in _ctx.current_job.steps if s.id == id), None)
-                if step is None:
-                    _ctx.error(
-                        f"job `{_ctx.current_job_id}` returns `steps.{id}.outputs`, but step `{id}` is not defined in it",
-                    )
-                elif step.outputs:
-                    _JobUpdaters.outputs(
-                        (o, getattr(x, o)) for o in sorted(step.outputs)
-                    )
-                else:
-                    _ctx.error(
-                        f"job `{id}` returns expression `{instantiate(x._syntax)}` which has no declared fields. Did you forget to use `returns()` on a step?",
-                    )
-            case _:
-                _ctx.error(
-                    f"job `{id}` returns an expression that is not in a `steps.*.outputs`"
-                )
+type JobCall = typing.Callable[..., None]
 
 
 def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
@@ -469,7 +425,7 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     for p in inspect.signature(func).parameters:
         if p in _ctx.current_workflow.jobs:
             _JobUpdaters.needs([p])
-            ret[p] = RefExpr("needs", p)
+            ret[p] = getattr(needs, p)
         else:
             ret[p] = ~ErrorExpr(
                 f"job `{id}` needs job `{p}` which is currently undefined"
@@ -486,10 +442,8 @@ def _interpret_job(
     with _ctx.build_job(id) as j:
         j.name = func.__doc__
         input = _job_needs(id, func)
-        _job_returns(id, func(**input))
-        return ErrorExpr(
-            f"job `{id}` is not a prerequisite, you must add it to `{_ctx.current_job_id}`'s parameters"
-        )
+        func(**input)
+        return getattr(needs, id)
 
 
 job._make_callable(_interpret_job)
@@ -640,9 +594,6 @@ class _StepUpdater:
         _ctx.validate(kwargs, target=ret._step, field="outputs")
         ret._step.outputs = ret._step.outputs or []
         ret._step.outputs += outs
-        if ret._step.id:
-            for o in outs:
-                getattr(steps, ret._step.id).outputs._activate(o)
         # TODO: support other shells than bash
         if kwargs:
             # TODO: handle quoting?
@@ -682,6 +633,59 @@ class _StepUpdater:
 step = _StepUpdater()
 run = step.run
 use = step.uses
+
+
+def _dump_step_outputs(s: Step):
+    id = _ensure_step_id(s)
+    if s.outputs:
+        outputs = getattr(steps, id).outputs
+        _WorkflowOrJobUpdaters.outputs((o, getattr(outputs, o)) for o in s.outputs)
+    else:
+        _ctx.error(
+            f"step `{id}` passed to `outputs`, but no outputs were declared on it. Use `returns()` to do so",
+        )
+
+
+def _dump_job_outputs(id: str, j: Job):
+    if j.outputs:
+        outputs = getattr(jobs, id).outputs
+        _WorkflowOrJobUpdaters.outputs((o, getattr(outputs, o)) for o in j.outputs)
+    else:
+        _ctx.error(
+            f"job `{id}` passed to `outputs`, but no outputs were declared on it. Use `outputs()` to do so",
+        )
+
+
+def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typing.Any):
+    instance = _WorkflowOrJobUpdaters.instance("outputs")
+    unsupported = lambda: _ctx.error(
+        f'unsupported unnamed output `{instantiate(arg)}`, must be `"*"`, a context field or a step'
+    )
+    for arg in args:
+        match instance, arg:
+            case Workflow(), RefExpr(_segments=("needs", id)) if id in instance.jobs:
+                _dump_job_outputs(id, instance.jobs[id])
+            case _, RefExpr():
+                key = arg._segments[-1]
+                _WorkflowOrJobUpdaters.outputs(((key, arg),))
+            case _, Expr():
+                unsupported()
+            case Job(), _StepUpdater():
+                _dump_step_outputs(arg._step)
+            case Workflow(), _StepUpdater():
+                _ctx.error(f"a step cannot be returned as a workflow output")
+            case Job(), "*":
+                for s in instance.steps:
+                    if s.outputs:
+                        _dump_step_outputs(s)
+            case Workflow(), "*":
+                for id, j in instance.jobs.items():
+                    if j.outputs:
+                        _dump_job_outputs(id, j)
+            case _:
+                unsupported()
+    _WorkflowOrJobUpdaters.outputs(kwargs)
+
 
 always = function("always", 0)
 cancelled = function("cancelled", 0)

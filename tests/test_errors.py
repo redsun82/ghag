@@ -27,7 +27,7 @@ def test_wrong_jobs(error):
         run("echo Hello, world")
 
         # fmt: off
-        error("job `nested` not created directly inside a workflow body")
+        error('job `nested` not created directly inside a workflow body')
         @job
         # fmt: on
         def nested():
@@ -38,7 +38,7 @@ def test_wrong_jobs(error):
         pass
 
     # fmt: off
-    error("job `external` already exists in workflow `test_wrong_jobs`")
+    error('job `external` already exists in workflow `test_wrong_jobs`')
     @job
     # fmt: on
     def external():
@@ -79,7 +79,7 @@ def test_adding_jobs_to_auto_job(error):
     runs_on("x")
 
     # fmt: off
-    error("explict job `a_job` cannot be created after already implicitly creating a job, which happened when setting `runs_on`")
+    error('explict job `a_job` cannot be created after already implicitly creating a job, which happened when setting `runs_on`')
     @job
     # fmt: on
     def a_job():
@@ -133,32 +133,43 @@ def test_unexpected_step_outputs(error):
 
 @expect_errors
 def test_wrong_outputs(error):
-    # fmt: off
-    # error("job `j1` returns expression `steps.x.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
-    # @job
-    # def j1():
-    #     x = step("x")
-    #     return x.outputs
+    @job
+    def j1():
+        x = step("x")
+        error(
+            "step `x` passed to `outputs`, but no outputs were declared on it. Use `returns()` to do so"
+        )
+        outputs(x)
 
-    error("job `y` returns expression `steps.y.outputs` which has no declared fields. Did you forget to use `returns()` on a step?")
     @job
     def j2():
         x = step("x").returns("foo")
         y = step("y")
-        return x.outputs, y.outputs
+        error(
+            "step `y` passed to `outputs`, but no outputs were declared on it. Use `returns()` to do so"
+        )
+        outputs(x, y)
 
-    error("unsupported return value for job `j3`, must be `None`, a dictionary, a step `outputs` or a tuple of step `outputs`")
     @job
     def j3():
-        x = step("x").returns("foo")
-        y = step("y")
-        return x.outputs, y
+        error(
+            'unsupported unnamed output `42`, must be `"*"`, a context field or a step'
+        )
+        outputs(42)
 
-    error("unsupported return value for job `j4`, must be `None`, a dictionary, a step `outputs` or a tuple of step `outputs`")
     @job
     def j4():
-        return 42
-    # fmt: on
+        step.id("x").returns("foo")
+        step.id("y").returns("bar")
+        error(
+            'unsupported unnamed output `${{ steps.x && steps.y }}`, must be `"*"`, a context field or a step'
+        )
+        outputs(steps.x & steps.y)
+
+    error(
+        "job `j3` passed to `outputs`, but no outputs were declared on it. Use `outputs()` to do so"
+    )
+    outputs(j3)
 
 
 @expect_errors
@@ -171,24 +182,23 @@ def test_undeclared_step_output(error):
 @expect_errors
 def test_wrong_job_needs(error):
     # fmt: off
-    error("job `j1` needs job `non_existent` which is currently undefined")
+    error('job `j1` needs job `non_existent` which is currently undefined')
     @job
     def j1(non_existent):
         pass
 
-    error("job `j2` needs job `j3` which is currently undefined")
+    error('job `j2` needs job `j3` which is currently undefined')
     @job
     def j2(j3):
         pass
 
-    error("job `j3` needs job `wat` which is currently undefined")
+    error('job `j3` needs job `wat` which is currently undefined')
     @job
     def j3(j1, wat, j2):
         pass
 
     @job
     def j4():
-        error("job `j3` is not a prerequisite, you must add it to `j3`'s parameters")
         run(j3.outputs)
     # fmt: on
 
@@ -267,7 +277,6 @@ def test_steps_errors(error):
     env(FOO=steps)
 
     # fmt: off
-    error("job `j` returns `steps.z.outputs`, but step `z` is not defined in it")
     @job
     # fmt: on
     def j():
