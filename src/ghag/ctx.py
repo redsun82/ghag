@@ -420,19 +420,6 @@ def workflow(
 type JobCall = typing.Callable[..., None]
 
 
-def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
-    ret = {}
-    for p in inspect.signature(func).parameters:
-        if p in _ctx.current_workflow.jobs:
-            _JobUpdaters.needs([p])
-            ret[p] = getattr(Contexts.needs, p)
-        else:
-            ret[p] = ~ErrorExpr(
-                f"job `{id}` needs job `{p}` which is currently undefined"
-            )
-    return ret
-
-
 def _interpret_job(
     func: JobCall | None = None, *, id: str | None = None
 ) -> typing.Callable[[JobCall], Expr] | Expr:
@@ -441,8 +428,7 @@ def _interpret_job(
     id = id or func.__name__
     with _ctx.build_job(id) as j:
         j.name = func.__doc__
-        input = _job_needs(id, func)
-        func(**input)
+        func()
         return getattr(Contexts.needs, id)
 
 
@@ -452,6 +438,24 @@ name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
 env = _WorkflowOrJobUpdaters.env
 runs_on = _JobUpdaters.runs_on
+
+
+def needs(*args: RefExpr):
+    prereqs = []
+    unsupported = []
+    for a in args:
+        match a:
+            case RefExpr(_segments=("needs", id)):
+                prereqs.append(id)
+            case _:
+                unsupported.append(f"`{instantiate(a)}`")
+    if unsupported:
+        _ctx.error(
+            f"`needs` only accepts job handles given by `@job`, got {", ".join(unsupported)}"
+        )
+    else:
+        _JobUpdaters.needs(prereqs)
+        _ctx.validate([*args])
 
 
 def input(key: str, *args, **kwargs) -> InputProxy:

@@ -189,7 +189,7 @@ class ContextBase(threading.local, RuleSet):
             field != "needs", "`needs` cannot be used while declaring `needs` itself"
         ) and self.check(
             self.current_job and self.current_job.needs,
-            "`needs` is only allowed within a job with prerequisites listed in `needs`",
+            f"no job was declared as a `needs` prerequisite of this job",
         )
 
     @rule(Contexts.needs._)

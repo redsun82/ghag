@@ -181,27 +181,31 @@ def test_undeclared_step_output(error):
 
 @expect_errors
 def test_wrong_job_needs(error):
-    # fmt: off
-    error('job `j1` needs job `non_existent` which is currently undefined')
     @job
-    def j1(non_existent):
-        pass
-
-    error('job `j2` needs job `j3` which is currently undefined')
-    @job
-    def j2(j3):
-        pass
-
-    error('job `j3` needs job `wat` which is currently undefined')
-    @job
-    def j3(j1, wat, j2):
+    def init():
         pass
 
     @job
-    def j4():
-        error('`needs` is only allowed within a job with prerequisites listed in `needs`')
-        run(j3.outputs)
-    # fmt: on
+    def j():
+        error("no `non_existing` job declared yet in this workflow")
+        needs(Contexts.needs.non_existing)
+        error("no `other_job` job declared yet in this workflow")
+        needs(Contexts.needs.other_job)
+        error(
+            "`needs` only accepts job handles given by `@job`, got `42`, `init`, `${{ matrix.a }}`"
+        )
+        needs(42, "init", matrix.a)
+
+    @job
+    def other_job():
+        error("no job was declared as a `needs` prerequisite of this job")
+        run(j.outputs)
+
+    @job
+    def yet_another_job():
+        needs(other_job)
+        error("no `j` job was declared as a `needs` prerequisite of this job")
+        run(j.outputs)
 
 
 @expect_errors

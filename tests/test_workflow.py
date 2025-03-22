@@ -807,11 +807,13 @@ def test_needs():
         pass
 
     @job
-    def j2(j1):
+    def j2():
+        needs(j1)
         run(j1)
 
     @job
-    def j3(j1, j2):
+    def j3():
+        needs(j1, j2)
         run(j1)
         run(j2)
 
