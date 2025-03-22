@@ -6,7 +6,7 @@ from .workflow import *
 
 
 @contexts
-class _Contexts:
+class Contexts:
     class Steps(RefExpr):
         class Step(RefExpr):
             outputs: FlatMap
@@ -49,11 +49,9 @@ class _Contexts:
     needs: Jobs
 
 
-steps = _Contexts.steps
-matrix = _Contexts.matrix
-job = _Contexts.job
-jobs = _Contexts.jobs
-needs = _Contexts.needs
+steps = Contexts.steps
+matrix = Contexts.matrix
+job = Contexts.job
 
 
 @dataclasses.dataclass
@@ -160,4 +158,46 @@ class ContextBase(threading.local, RuleSet):
         return self.check(
             id in self.current_job.services,
             f"no `{id}` service defined in `job.services`",
+        )
+
+    @rule(Contexts.jobs)
+    def v(self, *, target: typing.Any = None, field: str | None = None):
+        return self.check(
+            isinstance(target, Workflow) and field == "outputs",
+            "`jobs` is only allowed while declaring worfklow outputs",
+        )
+
+    @rule(Contexts.jobs._)
+    def v(self, id, *, target: typing.Any = None, field: str | None = None):
+        return self.check(
+            id in self.current_workflow.jobs,
+            f"no `{id}` job declared yet in this workflow",
+        )
+
+    @rule(Contexts.jobs._.outputs._)
+    @rule(Contexts.needs._.outputs._)
+    def v(self, id, out, *, target: typing.Any = None, field: str | None = None):
+        job = self.current_workflow.jobs[id]
+        return self.check(
+            job.outputs and out in job.outputs,
+            f"no outputs `{out}` declared in job `{id}`",
+        )
+
+    @rule(Contexts.needs)
+    def v(self, *, target: typing.Any = None, field: str | None = None):
+        return self.check(
+            field != "needs", "`needs` cannot be used while declaring `needs` itself"
+        ) and self.check(
+            self.current_job and self.current_job.needs,
+            "`needs` is only allowed within a job with prerequisites listed in `needs`",
+        )
+
+    @rule(Contexts.needs._)
+    def v(self, id, *, target: typing.Any = None, field: str | None = None):
+        return self.check(
+            id in self.current_workflow.jobs,
+            f"no `{id}` job declared yet in this workflow",
+        ) and self.check(
+            id in self.current_job.needs,
+            f"no `{id}` job was declared as a `needs` prerequisite of this job",
         )

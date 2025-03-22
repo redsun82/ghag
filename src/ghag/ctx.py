@@ -425,7 +425,7 @@ def _job_needs(id: str, func: JobCall) -> dict[str, Expr]:
     for p in inspect.signature(func).parameters:
         if p in _ctx.current_workflow.jobs:
             _JobUpdaters.needs([p])
-            ret[p] = getattr(needs, p)
+            ret[p] = getattr(Contexts.needs, p)
         else:
             ret[p] = ~ErrorExpr(
                 f"job `{id}` needs job `{p}` which is currently undefined"
@@ -443,7 +443,7 @@ def _interpret_job(
         j.name = func.__doc__
         input = _job_needs(id, func)
         func(**input)
-        return getattr(needs, id)
+        return getattr(Contexts.needs, id)
 
 
 job._make_callable(_interpret_job)
@@ -648,7 +648,7 @@ def _dump_step_outputs(s: Step):
 
 def _dump_job_outputs(id: str, j: Job):
     if j.outputs:
-        outputs = getattr(jobs, id).outputs
+        outputs = getattr(Contexts.jobs, id).outputs
         _WorkflowOrJobUpdaters.outputs((o, getattr(outputs, o)) for o in j.outputs)
     else:
         _ctx.error(

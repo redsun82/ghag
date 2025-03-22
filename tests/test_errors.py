@@ -199,6 +199,7 @@ def test_wrong_job_needs(error):
 
     @job
     def j4():
+        error('`needs` is only allowed within a job with prerequisites listed in `needs`')
         run(j3.outputs)
     # fmt: on
 
