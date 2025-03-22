@@ -13,7 +13,7 @@ import functools
 import colorlog
 
 yaml = YAML()
-yaml.default_flow_style = None
+yaml.default_flow_style = False
 
 
 class DiffError(Exception):

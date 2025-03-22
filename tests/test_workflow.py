@@ -10,7 +10,8 @@ from src.ghag.ctx import *
 name: My workflow
 on:
   pull_request:
-    branches: [main]
+    branches:
+    - main
   workflow_dispatch: {}
 jobs: {}
 """
@@ -40,11 +41,18 @@ def test_name_from_docstring():
 # generated from test_workflow.py::test_pull_request
 on:
   pull_request:
-    types: [opened, reopened]
-    branches: [main, dev/*]
-    ignore-branches: [dev/ignore]
-    paths: [foo/**]
-    ignore-paths: [foo/bar/**]
+    types:
+    - opened
+    - reopened
+    branches:
+    - main
+    - dev/*
+    ignore-branches:
+    - dev/ignore
+    paths:
+    - foo/**
+    ignore-paths:
+    - foo/bar/**
 jobs: {}
 """
 )
@@ -63,8 +71,10 @@ def test_pull_request():
 # generated from test_workflow.py::test_merge
 on:
   pull_request:
-    branches: [main]
-    paths: [foo/**]
+    branches:
+    - main
+    paths:
+    - foo/**
 jobs: {}
 """
 )
@@ -82,7 +92,8 @@ jobs:
   my_job:
     name: My job
     runs-on: ubuntu-latest
-    env: {FOO: bar}
+    env:
+      FOO: bar
 """
 )
 def test_job():
@@ -103,7 +114,8 @@ jobs:
   my_job:
     name: My job
     runs-on: ubuntu-latest
-    env: {FOO: bar}
+    env:
+      FOO: bar
 """
 )
 def test_job_name_from_docstring():
@@ -124,11 +136,13 @@ jobs:
   job1:
     name: First job
     runs-on: ubuntu-latest
-    env: {FOO: bar}
+    env:
+      FOO: bar
   job2:
     name: Second job
     runs-on: ubuntu-latest
-    env: {BAZ: bazz}
+    env:
+      BAZ: bazz
 """
 )
 def test_jobs():
@@ -151,7 +165,8 @@ def test_jobs():
 on:
   workflow_dispatch: {}
 jobs:
-  my_job: {runs-on: windows-latest}
+  my_job:
+    runs-on: windows-latest
 """
 )
 def test_job_runs_on():
@@ -171,8 +186,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        x: [1, 2, 3]
-        y: [a, b, c]
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
     steps:
     - run: ${{ matrix.x }}, ${{ matrix.y }}
 """
@@ -194,11 +215,20 @@ jobs:
     strategy:
       matrix:
         include:
-        - {x: 100, y: z, z: 42}
+        - x: 100
+          y: z
+          z: 42
         exclude:
-        - {x: 1, y: a}
-        x: [1, 2, 3]
-        y: [a, b, c]
+        - x: 1
+          y: a
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
     steps:
     - run: ${{ matrix.x }}, ${{ matrix.y }}, ${{ matrix.z }}
 """
@@ -224,8 +254,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        x: [1, 2, 3]
-        y: [a, b, c]
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
+        - c
       fail-fast: true
       max-parallel: 5
     steps:
@@ -249,9 +285,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include: {z: 42}
-        x: [1, 2, 3]
-        y: [a, b]
+        include:
+          z: 42
+        x:
+        - 1
+        - 2
+        - 3
+        y:
+        - a
+        - b
     steps:
     - run: ${{ matrix.x }}, ${{ matrix.y }}, ${{ matrix.z }}
 """
@@ -268,14 +310,17 @@ def test_strategy_in_workflow():
 on:
   workflow_call:
     inputs:
-      i: {required: true}
+      i:
+        required: true
   workflow_dispatch:
     inputs:
-      i: {required: true}
+      i:
+        required: true
 jobs:
   test_matrix_from_input:
     runs-on: ubuntu-latest
-    strategy: {matrix: '${{ fromJson(inputs.i) }}'}
+    strategy:
+      matrix: ${{ fromJson(inputs.i) }}
     steps:
     - run: ${{ matrix.foo }}, ${{ matrix.bar }}
     - name: Fail
@@ -293,11 +338,13 @@ def test_matrix_from_input(i):
 # generated from test_workflow.py::test_runs_on_in_workflow
 on:
   workflow_dispatch: {}
-env: {WORKFLOW_ENV: 1}
+env:
+  WORKFLOW_ENV: 1
 jobs:
   test_runs_on_in_workflow:
     runs-on: macos-latest
-    env: {JOB_ENV: 2}
+    env:
+      JOB_ENV: 2
 """
 )
 def test_runs_on_in_workflow():
@@ -314,7 +361,9 @@ name: Foo bar
 on:
   workflow_dispatch: {}
 jobs:
-  test_runs_on_in_worfklow_with_name: {name: Foo bar, runs-on: macos-latest}
+  test_runs_on_in_worfklow_with_name:
+    name: Foo bar
+    runs-on: macos-latest
 """
 )
 def test_runs_on_in_worfklow_with_name():
@@ -335,19 +384,25 @@ jobs:
     - name: salutations
       run: echo hello
     - run: echo $WHO
-      env: {WHO: world}
+      env:
+        WHO: world
     - name: catastrophe
       if: failure()
       run: echo oh no
     - name: Checkout
       uses: actions/checkout@v4
-      with: {ref: dev}
+      with:
+        ref: dev
     - name: My action
       uses: ./my_action
-      with: {arg1: foo, arg2: bar}
+      with:
+        arg1: foo
+        arg2: bar
     - name: My other action
       uses: ./my_other_action
-      with: {arg1: foo, arg2: bar}
+      with:
+        arg1: foo
+        arg2: bar
     - continue-on-error: true
       run: one
     - continue-on-error: value
@@ -375,14 +430,25 @@ def test_steps():
 on:
   workflow_dispatch:
     inputs:
-      foo: {description: a foo, required: true, type: string}
-      bar: {description: a bar, required: false, type: boolean}
+      foo:
+        description: a foo
+        required: true
+        type: string
+      bar:
+        description: a bar
+        required: false
+        type: boolean
       baz:
         required: false
         default: b
         type: choice
-        options: [a, b, c]
-      an_env: {required: false, type: environment}
+        options:
+        - a
+        - b
+        - c
+      an_env:
+        required: false
+        type: environment
 jobs: {}
 """
 )
@@ -402,16 +468,26 @@ def test_workflow_dispatch_inputs():
 on:
   workflow_call:
     inputs:
-      foo: {required: true, type: string}
-      bar: {required: false, type: boolean}
+      foo:
+        required: true
+        type: string
+      bar:
+        required: false
+        type: boolean
       baz:
         required: false
         default: b
         type: choice
-        options: [a, b, c]
+        options:
+        - a
+        - b
+        - c
     secrets:
-      token: {required: true}
-      auth: {description: auth if provided, required: false}
+      token:
+        required: true
+      auth:
+        description: auth if provided
+        required: false
 jobs: {}
 """
 )
@@ -431,12 +507,24 @@ def test_workflow_call():
 on:
   workflow_call:
     inputs:
-      foo: {description: a foo, required: true, type: string}
-      bar: {required: false, default: 42, type: number}
+      foo:
+        description: a foo
+        required: true
+        type: string
+      bar:
+        required: false
+        default: 42
+        type: number
   workflow_dispatch:
     inputs:
-      foo: {description: a foo, required: true, type: string}
-      bar: {required: false, default: 42, type: number}
+      foo:
+        description: a foo
+        required: true
+        type: string
+      bar:
+        required: false
+        default: 42
+        type: number
 jobs: {}
 """
 )
@@ -451,7 +539,10 @@ def test_inputs():
 on:
   workflow_call:
     inputs:
-      foo: {description: a foo, required: false, type: string}
+      foo:
+        description: a foo
+        required: false
+        type: string
 jobs: {}
 """
 )
@@ -466,10 +557,16 @@ def test_trigger_removal():
 on:
   workflow_call:
     inputs:
-      foo: {description: a foo, required: false, type: string}
+      foo:
+        description: a foo
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
-      foo: {description: a foo, required: false, type: string}
+      foo:
+        description: a foo
+        required: false
+        type: string
 jobs:
   test_use_input_as_expr:
     runs-on: ubuntu-latest
@@ -488,28 +585,50 @@ def test_use_input_as_expr():
 on:
   workflow_call:
     inputs:
-      foo: {description: a foo, required: true, type: number}
+      foo:
+        description: a foo
+        required: true
+        type: number
       bar:
         required: true
         type: choice
-        options: [apple, orange, banana]
+        options:
+        - apple
+        - orange
+        - banana
       c:
         required: true
         type: choice
-        options: [one, two]
-      baz: {required: false, default: 42, type: number}
+        options:
+        - one
+        - two
+      baz:
+        required: false
+        default: 42
+        type: number
   workflow_dispatch:
     inputs:
-      foo: {description: a foo, required: true, type: number}
+      foo:
+        description: a foo
+        required: true
+        type: number
       bar:
         required: true
         type: choice
-        options: [apple, orange, banana]
+        options:
+        - apple
+        - orange
+        - banana
       c:
         required: true
         type: choice
-        options: [one, two]
-      baz: {required: false, default: 42, type: number}
+        options:
+        - one
+        - two
+      baz:
+        required: false
+        default: 42
+        type: number
 jobs:
   test_inputs_from_parameters:
     runs-on: ubuntu-latest
@@ -640,7 +759,10 @@ jobs:
       a: ${{ matrix.a }}
     strategy:
       matrix:
-        a: [1, 2, 3]
+        a:
+        - 1
+        - 2
+        - 3
     steps:
     - id: x
       name: x
@@ -658,7 +780,10 @@ jobs:
       a: ${{ matrix.a }}
     strategy:
       matrix:
-        a: [1, 2, 3]
+        a:
+        - 1
+        - 2
+        - 3
     steps:
     - id: step-1
       run: |
@@ -702,7 +827,10 @@ jobs:
       baz: ${{ matrix.a }}
     strategy:
       matrix:
-        a: [1, 2, 3]
+        a:
+        - 1
+        - 2
+        - 3
     steps:
     - id: x
       name: x
@@ -727,7 +855,9 @@ def test_explicit_job_outputs():
     """
 # generated from test_workflow.py::test_implicit_workflow_outputs
 on: {}
-outputs: {one: '${{ jobs.j1.outputs.one }}', two: '${{ jobs.j1.outputs.two }}'}
+outputs:
+  one: ${{ jobs.j1.outputs.one }}
+  two: ${{ jobs.j1.outputs.two }}
 jobs:
   j1:
     runs-on: ubuntu-latest
@@ -756,8 +886,10 @@ def test_implicit_workflow_outputs():
     """
 # generated from test_workflow.py::test_jolly_workflow_outputs
 on: {}
-outputs: {one: '${{ jobs.j1.outputs.one }}', two: '${{ jobs.j1.outputs.two }}', three: '${{
-    jobs.j2.outputs.three }}'}
+outputs:
+  one: ${{ jobs.j1.outputs.one }}
+  two: ${{ jobs.j1.outputs.two }}
+  three: ${{ jobs.j2.outputs.three }}
 jobs:
   j1:
     runs-on: ubuntu-latest
@@ -787,14 +919,18 @@ def test_jolly_workflow_outputs():
 # generated from test_workflow.py::test_needs
 on: {}
 jobs:
-  j1: {runs-on: ubuntu-latest}
+  j1:
+    runs-on: ubuntu-latest
   j2:
-    needs: [j1]
+    needs:
+    - j1
     runs-on: ubuntu-latest
     steps:
     - run: ${{ needs.j1 }}
   j3:
-    needs: [j1, j2]
+    needs:
+    - j1
+    - j2
     runs-on: ubuntu-latest
     steps:
     - run: ${{ needs.j1 }}
@@ -845,17 +981,23 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: node:18
-      env: {NODE_ENV: development}
-      ports: [80]
-      volumes: [my_docker_volume:/volume_mount]
-      options: [--cpus 1]
+      env:
+        NODE_ENV: development
+      ports:
+      - 80
+      volumes:
+      - my_docker_volume:/volume_mount
+      options:
+      - --cpus 1
     steps:
     - run: echo ${{ job.container.id }}
   j2:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/owner/image
-      credentials: {username: foo, password: baz}
+      credentials:
+        username: foo
+        password: baz
 """
 )
 def test_container():
@@ -882,9 +1024,11 @@ jobs:
     services:
       nginx:
         image: nginx:latest
-        ports: [8080:80]
+        ports:
+        - 8080:80
       redis:
-        ports: [6379/tcp]
+        ports:
+        - 6379/tcp
     steps:
     - run: echo ${{ job.services.nginx.id }}
     - run: echo ${{ job.services.redis.ports[6379] }}
