@@ -515,23 +515,47 @@ container = _JobUpdaters.container
 service = _JobUpdaters.service
 
 
+def _allocate_step_id(prefix: str, start_from_one: bool = False) -> str:
+    def is_free(id: str) -> bool:
+        return all(s.id != id for s in _ctx.current_job.steps)
+
+    if not start_from_one and is_free(prefix):
+        return prefix
+    return next(
+        (id for id in (f"{prefix}-{i}" for i in itertools.count(1)) if is_free(id))
+    )
+
+
+def _ensure_step_id(s: Step) -> str:
+    if s.id is None:
+        frame = _get_user_frame()
+        id = next(
+            (
+                var
+                for var, value in frame.f_locals.items()
+                if isinstance(value, _StepUpdater) and value._step is s
+            ),
+            None,
+        )
+        s.id = _allocate_step_id(id or "step", start_from_one=id is None)
+    return s.id
+
+
 @dataclass
 class _StepUpdater:
-    steps: list[Step] | None = None
+    _step: Step | None = None
 
     def __call__(self, name: Value[str]) -> typing.Self:
         return self.name(name)
-
-    @property
-    def _step(self) -> Step | None:
-        return self.steps[-1] if self.steps else None
 
     def _ensure_step(self) -> typing.Self:
         if self._step is not None:
             return self
         _JobUpdaters.steps([Step()])
-        steps = _ctx.current_job and _ctx.current_job.steps
-        return _StepUpdater(steps)
+        step = (
+            _ctx.current_job and _ctx.current_job.steps and _ctx.current_job.steps[-1]
+        )
+        return _StepUpdater(step)
 
     def _ensure_run_step(self) -> typing.Self:
         ret = self._ensure_step()
@@ -630,27 +654,8 @@ class _StepUpdater:
             )
         return ret
 
-    def _allocate_id(self, prefix: str, start_from_one: bool = False) -> str:
-        def is_free(id: str) -> bool:
-            return all(s.id != id for s in _ctx.current_job.steps)
-
-        if not start_from_one and is_free(prefix):
-            return prefix
-        return next(
-            (id for id in (f"{prefix}-{i}" for i in itertools.count(1)) if is_free(id))
-        )
-
     def ensure_id(self) -> str:
-        if self._step and self._step.id is not None:
-            return self._step.id
-        frame = _get_user_frame()
-        id = next((var for var, value in frame.f_locals.items() if value is self), None)
-        if id is None:
-            id = self._allocate_id("step", start_from_one=True)
-        elif any(s.id == id for s in _ctx.current_job.steps):
-            id = self._allocate_id(id)
-        self.id(id)
-        return id
+        return _ensure_step_id(self._ensure_step()._step)
 
     @property
     def outputs(self):
