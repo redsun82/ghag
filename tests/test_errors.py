@@ -185,6 +185,9 @@ def test_wrong_job_needs(error):
     def init():
         pass
 
+    error("job handle used as an expression outside a job")
+    env(FOO=init)
+
     @job
     def j():
         error("no `non_existing` job declared yet in this workflow")
@@ -198,14 +201,7 @@ def test_wrong_job_needs(error):
 
     @job
     def other_job():
-        error("no job was declared as a `needs` prerequisite of this job")
-        run(j.outputs)
-
-    @job
-    def yet_another_job():
-        needs(other_job)
-        error("no `j` job was declared as a `needs` prerequisite of this job")
-        run(j.outputs)
+        pass
 
 
 @expect_errors

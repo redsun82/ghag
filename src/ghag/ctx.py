@@ -284,7 +284,6 @@ class _JobUpdaters(_Updaters):
         max_parallel = _Updater(int)
 
     strategy = StrategyUpdater(Strategy)
-    needs = _Updater(list)
     steps = _Updater(list)
 
     class ContainerUpdater[**P, F](_Updater[P, F]):
@@ -454,7 +453,7 @@ def needs(*args: RefExpr):
             f"`needs` only accepts job handles given by `@job`, got {", ".join(unsupported)}"
         )
     else:
-        _JobUpdaters.needs(prereqs)
+        # this checks and autofills needs
         _ctx.validate([*args])
 
 
@@ -608,6 +607,10 @@ class _StepUpdater:
                 f"{ret._step.run}\n{out_code}" if ret._step.run else out_code
             )
         return ret
+
+    def needs(self, job: RefExpr) -> typing.Self:
+        needs(job)
+        return self._ensure_step()
 
     def ensure_id(self) -> str:
         return _ensure_step_id(self._ensure_step()._step)

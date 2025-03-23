@@ -1,4 +1,5 @@
 import threading
+import typing
 
 from .expr import contexts, RefExpr, Map, FlatMap
 from .rules import *
@@ -51,7 +52,7 @@ class Contexts:
 
 steps = Contexts.steps
 matrix = Contexts.matrix
-job = Contexts.job
+job: Contexts.Job = Contexts.job
 
 
 @dataclasses.dataclass
@@ -185,19 +186,22 @@ class ContextBase(threading.local, RuleSet):
 
     @rule(Contexts.needs)
     def v(self, *, target: typing.Any = None, field: str | None = None):
-        return self.check(
-            field != "needs", "`needs` cannot be used while declaring `needs` itself"
-        ) and self.check(
-            self.current_job and self.current_job.needs,
-            f"no job was declared as a `needs` prerequisite of this job",
-        )
+        if not self.check(
+            self.current_job, "job handle used as an expression outside a job"
+        ):
+            return False
+        # in case `needs._` is used without any actual needed job, let's make sure `needs` is present
+        if self.current_job.needs is None:
+            self.current_job.needs = []
+        return True
 
     @rule(Contexts.needs._)
     def v(self, id, *, target: typing.Any = None, field: str | None = None):
-        return self.check(
+        if not self.check(
             id in self.current_workflow.jobs,
             f"no `{id}` job declared yet in this workflow",
-        ) and self.check(
-            id in self.current_job.needs,
-            f"no `{id}` job was declared as a `needs` prerequisite of this job",
-        )
+        ):
+            return False
+        if id not in self.current_job.needs:
+            self.current_job.needs.append(id)
+        return True

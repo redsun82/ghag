@@ -926,15 +926,21 @@ jobs:
     - j1
     runs-on: ubuntu-latest
     steps:
-    - run: ${{ needs.j1 }}
+    - if: needs.j1
+      run: ''
   j3:
     needs:
     - j1
     - j2
     runs-on: ubuntu-latest
     steps:
-    - run: ${{ needs.j1 }}
-    - run: ${{ needs.j2 }}
+    - run: ''
+    - run: ''
+  j4:
+    needs:
+    - j1
+    - j3
+    runs-on: ubuntu-latest
 """
 )
 def test_needs():
@@ -944,14 +950,16 @@ def test_needs():
 
     @job
     def j2():
-        needs(j1)
-        run(j1)
+        run("").if_(j1)
 
     @job
     def j3():
-        needs(j1, j2)
-        run(j1)
-        run(j2)
+        step.needs(j1).run("")
+        step.needs(j2).run("")
+
+    @job
+    def j4():
+        needs(j1, j3)
 
 
 @expect(
