@@ -24,20 +24,6 @@ def test_basic():
 
 @expect(
     """
-# generated from test_workflow.py::test_name_from_docstring
-name: My workflow
-on:
-  workflow_dispatch: {}
-jobs: {}
-"""
-)
-def test_name_from_docstring():
-    """My workflow"""
-    on.workflow_dispatch()
-
-
-@expect(
-    """
 # generated from test_workflow.py::test_pull_request
 on:
   pull_request:
@@ -102,28 +88,6 @@ def test_job():
     @job
     def my_job():
         name("My job")
-        env(FOO="bar")
-
-
-@expect(
-    """
-# generated from test_workflow.py::test_job_name_from_docstring
-on:
-  workflow_dispatch: {}
-jobs:
-  my_job:
-    name: My job
-    runs-on: ubuntu-latest
-    env:
-      FOO: bar
-"""
-)
-def test_job_name_from_docstring():
-    on.workflow_dispatch()
-
-    @job
-    def my_job():
-        """My job"""
         env(FOO="bar")
 
 

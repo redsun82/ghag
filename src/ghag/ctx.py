@@ -367,7 +367,6 @@ class WorkflowInfo:
             for e in self.errors:
                 e.workflow_id = e.workflow_id or current_workflow_id()
             _ctx.errors += self.errors
-            wf.name = self.spec.__doc__
             inputs = {
                 key: (
                     input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
@@ -426,7 +425,6 @@ def _interpret_job(
         return lambda func: _interpret_job(func, id=id)
     id = id or func.__name__
     with _ctx.build_job(id) as j:
-        j.name = func.__doc__
         func()
         return getattr(Contexts.needs, id)
 
