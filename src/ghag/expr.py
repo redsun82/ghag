@@ -355,14 +355,25 @@ class CallExpr(Expr):
 
 @dataclasses.dataclass
 class ProxyExpr(Expr):
-    _expr: Expr
+    _expr: typing.Callable[[], Expr] | Expr
+    _called: bool = False
+
+    @property
+    def _actual_expr(self) -> Expr:
+        if not self._called:
+            self._expr = self._expr()
+            self._called = True
+        return self._expr
 
     @property
     def _syntax(self) -> str:
-        return self._expr._syntax
+        return self._actual_expr._syntax
 
     def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
-        return self._expr._get_paths()
+        return self._actual_expr._get_paths()
+
+    def __getattr__(self, item: str) -> typing.Any:
+        return getattr(self._actual_expr, item)
 
 
 @dataclasses.dataclass

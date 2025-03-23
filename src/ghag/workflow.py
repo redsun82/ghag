@@ -60,7 +60,7 @@ class InputProxy(ProxyExpr):
     proxied: list[Input] = dataclasses.field(default_factory=list)
 
     def __init__(self, key: str, *proxied: Input):
-        super().__init__(RefExpr("inputs", key))
+        super().__init__(lambda: RefExpr("inputs", key))
         self.proxied = list(proxied)
 
     def __setattr__(self, name, value):

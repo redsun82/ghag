@@ -9,7 +9,17 @@ import pathlib
 
 import inflection
 
-from .expr import Expr, on_error, contexts, FlatMap, Map, ErrorExpr, function, reftree
+from .expr import (
+    Expr,
+    on_error,
+    contexts,
+    FlatMap,
+    Map,
+    ErrorExpr,
+    function,
+    reftree,
+    CallExpr,
+)
 from . import workflow, element
 from .contexts import *
 
@@ -372,7 +382,7 @@ class WorkflowInfo:
                 key: (
                     input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
                     if i is not None
-                    else ErrorExpr("", _emitted=True)
+                    else CallExpr("error")
                 )
                 for key, i in self.inputs.items()
             }
@@ -472,10 +482,9 @@ container = _JobUpdaters.container
 service = _JobUpdaters.service
 
 
-def _allocate_step_id(prefix: str, start_from_one: bool = False) -> str:
-    def is_free(id: str) -> bool:
-        return all(s.id != id for s in _ctx.current_job.steps)
-
+def _allocate_id(
+    prefix: str, is_free: typing.Callable[[str], bool], *, start_from_one: bool = False
+) -> str:
     if not start_from_one and is_free(prefix):
         return prefix
     return next(
@@ -483,18 +492,19 @@ def _allocate_step_id(prefix: str, start_from_one: bool = False) -> str:
     )
 
 
+def _get_var_name(pred: typing.Callable[[object], bool]) -> str | None:
+    frame = _get_user_frame()
+    return next((var for var, value in frame.f_locals.items() if pred(value)), None)
+
+
 def _ensure_step_id(s: Step) -> str:
     if s.id is None:
-        frame = _get_user_frame()
-        id = next(
-            (
-                var
-                for var, value in frame.f_locals.items()
-                if isinstance(value, _StepUpdater) and value._step is s
-            ),
-            None,
+        id = _get_var_name(lambda v: isinstance(v, _StepUpdater) and v._step is s)
+        s.id = _allocate_id(
+            id or "step",
+            lambda id: all(s.id != id for s in _ctx.current_job.steps),
+            start_from_one=id is None,
         )
-        s.id = _allocate_step_id(id or "step", start_from_one=id is None)
     return s.id
 
 

@@ -84,12 +84,10 @@ def test_simple_context():
     with on_error(error_handler):
         _ = x.c
         _ = x.b.whatever
-        error_handler.assert_has_calls(
-            [
-                unittest.mock.call("`c` not available in `x`"),
-                unittest.mock.call("`whatever` not available in `x.b`"),
-            ]
-        )
+        assert error_handler.mock_calls == [
+            unittest.mock.call("`c` not available in `x`"),
+            unittest.mock.call("`whatever` not available in `x.b`"),
+        ]
 
 
 def test_context_with_call_operator():
@@ -136,13 +134,11 @@ def test_nested_context():
         _ = x.c
         _ = x.y.bla
         _ = x.y.a
-        error_handler.assert_has_calls(
-            [
-                unittest.mock.call("`c` not available in `x`"),
-                unittest.mock.call("`bla` not available in `x.y`"),
-                unittest.mock.call("`a` not available in `x.y`"),
-            ]
-        )
+        assert error_handler.mock_calls == [
+            unittest.mock.call("`c` not available in `x`"),
+            unittest.mock.call("`bla` not available in `x.y`"),
+            unittest.mock.call("`a` not available in `x.y`"),
+        ]
 
 
 def test_map_context():
@@ -181,14 +177,12 @@ def test_map_context():
         _ = x.baz.foo.whatever
         _ = x.baz.bar.whatever
         _ = x._.whatever
-        error_handler.assert_has_calls(
-            [
-                unittest.mock.call("`whatever` not available in `x.b.foo`"),
-                unittest.mock.call("`whatever` not available in `x.baz.foo`"),
-                unittest.mock.call("`whatever` not available in `x.baz.bar`"),
-                unittest.mock.call("`whatever` not available in `x.*`"),
-            ]
-        )
+        assert error_handler.mock_calls == [
+            unittest.mock.call("`whatever` not available in `x.b.foo`"),
+            unittest.mock.call("`whatever` not available in `x.baz.foo`"),
+            unittest.mock.call("`whatever` not available in `x.baz.bar`"),
+            unittest.mock.call("`whatever` not available in `x.*`"),
+        ]
 
 
 def test_functions():
