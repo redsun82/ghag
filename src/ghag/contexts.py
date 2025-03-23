@@ -49,10 +49,24 @@ class Contexts:
     jobs: Jobs
     needs: Jobs
 
+    class Runner:
+        name: RefExpr
+        os: RefExpr
+        arch: RefExpr
+        temp: RefExpr
+        tool_cache: RefExpr
+        debug: RefExpr
+        environment: RefExpr
+
+    runner: Runner
+
 
 steps = Contexts.steps
 matrix = Contexts.matrix
-job: Contexts.Job = Contexts.job
+job = Contexts.job
+runner = Contexts.runner
+
+# we don't expose needs and jobs as we handle them without explicit references
 
 
 @dataclasses.dataclass
@@ -205,3 +219,16 @@ class ContextBase(threading.local, RuleSet):
         if id not in self.current_job.needs:
             self.current_job.needs.append(id)
         return True
+
+    @rule(runner)
+    def v(self, *, target: typing.Any = None, field: str | None = None):
+        return (
+            self.check(self.current_job, "`runner` can only be used in a job")
+            and self.check(
+                field != "strategy" and not isinstance(target, Strategy),
+                f"`runner` cannot be used to update a job `strategy`",
+            )
+            and self.check(
+                field != "runs_on", f"`runner` cannot be used to update a job `runs-on`"
+            )
+        )
