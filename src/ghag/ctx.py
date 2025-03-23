@@ -439,7 +439,7 @@ env = _WorkflowOrJobUpdaters.env
 runs_on = _JobUpdaters.runs_on
 
 
-def needs(*args: RefExpr):
+def needs(*args: RefExpr) -> list[str]:
     prereqs = []
     unsupported = []
     for a in args:
@@ -455,6 +455,7 @@ def needs(*args: RefExpr):
     else:
         # this checks and autofills needs
         _ctx.validate([*args])
+    return prereqs
 
 
 def input(key: str, *args, **kwargs) -> InputProxy:
@@ -608,9 +609,11 @@ class _StepUpdater:
             )
         return ret
 
-    def needs(self, job: RefExpr) -> typing.Self:
-        needs(job)
-        return self._ensure_step()
+    def needs(self, *jobs: RefExpr) -> typing.Self:
+        jobs = needs(*jobs)
+        ret = self._ensure_step()
+        ret._step.needs = jobs
+        return ret
 
     def ensure_id(self) -> str:
         return _ensure_step_id(self._ensure_step()._step)

@@ -899,7 +899,9 @@ jobs:
     needs: [j1, j2]
     runs-on: ubuntu-latest
     steps:
+    # needs j1
     - run: ''
+    # needs j1, j2
     - run: ''
   j4:
     needs: [j1, j3]
@@ -918,7 +920,7 @@ def test_needs():
     @job
     def j3():
         step.needs(j1).run("")
-        step.needs(j2).run("")
+        step.needs(j1, j2).run("")
 
     @job
     def j4():

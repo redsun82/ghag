@@ -258,11 +258,14 @@ class Step(Element):
     uses: str
     with_: dict[str, Value[str | bool | int | float]]
 
+    # extensions
     outputs: list[str]
+    needs: list[str]
 
     def asdict(self) -> typing.Any:
         ret = super().asdict()
         ret.pop("outputs", None)
+        needs = ret.pop("needs", None)
         if isinstance(self.if_, Expr):
             ret["if"] = self.if_._formula
         run = ret.get("run")
@@ -270,6 +273,9 @@ class Step(Element):
             if run[-1] != "\n":
                 run += "\n"
             ret["run"] = LiteralScalarString(run)
+        if needs:
+            ret = CommentedMap(ret)
+            ret.yaml_set_start_comment(f"needs {", ".join(needs)}", indent=4)
         return ret
 
 
