@@ -186,14 +186,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        x:
-        - 1
-        - 2
-        - 3
-        y:
-        - a
-        - b
-        - c
+        x: [1, 2, 3]
+        y: [a, b, c]
     steps:
     - run: ${{ matrix.x }}, ${{ matrix.y }}
 """
@@ -221,14 +215,8 @@ jobs:
         exclude:
         - x: 1
           y: a
-        x:
-        - 1
-        - 2
-        - 3
-        y:
-        - a
-        - b
-        - c
+        x: [1, 2, 3]
+        y: [a, b, c]
     steps:
     - run: ${{ matrix.x }}, ${{ matrix.y }}, ${{ matrix.z }}
 """
@@ -254,14 +242,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        x:
-        - 1
-        - 2
-        - 3
-        y:
-        - a
-        - b
-        - c
+        x: [1, 2, 3]
+        y: [a, b, c]
       fail-fast: true
       max-parallel: 5
     steps:
@@ -287,13 +269,8 @@ jobs:
       matrix:
         include:
           z: 42
-        x:
-        - 1
-        - 2
-        - 3
-        y:
-        - a
-        - b
+        x: [1, 2, 3]
+        y: [a, b]
     steps:
     - run: ${{ matrix.x }}, ${{ matrix.y }}, ${{ matrix.z }}
 """
@@ -759,10 +736,7 @@ jobs:
       a: ${{ matrix.a }}
     strategy:
       matrix:
-        a:
-        - 1
-        - 2
-        - 3
+        a: [1, 2, 3]
     steps:
     - id: x
       name: x
@@ -780,10 +754,7 @@ jobs:
       a: ${{ matrix.a }}
     strategy:
       matrix:
-        a:
-        - 1
-        - 2
-        - 3
+        a: [1, 2, 3]
     steps:
     - id: step-1
       run: |
@@ -827,10 +798,7 @@ jobs:
       baz: ${{ matrix.a }}
     strategy:
       matrix:
-        a:
-        - 1
-        - 2
-        - 3
+        a: [1, 2, 3]
     steps:
     - id: x
       name: x
@@ -922,24 +890,19 @@ jobs:
   j1:
     runs-on: ubuntu-latest
   j2:
-    needs:
-    - j1
+    needs: [j1]
     runs-on: ubuntu-latest
     steps:
     - if: needs.j1
       run: ''
   j3:
-    needs:
-    - j1
-    - j2
+    needs: [j1, j2]
     runs-on: ubuntu-latest
     steps:
     - run: ''
     - run: ''
   j4:
-    needs:
-    - j1
-    - j3
+    needs: [j1, j3]
     runs-on: ubuntu-latest
 """
 )

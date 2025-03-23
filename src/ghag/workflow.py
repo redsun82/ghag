@@ -1,12 +1,29 @@
 import dataclasses
 import typing
 
+from ruamel.yaml import CommentedSeq
+
 from .element import Element
 from typing import Any, cast
 from .expr import Value, Expr, ProxyExpr, RefExpr, instantiate
 from dataclasses import field
 from ruamel.yaml.scalarstring import LiteralScalarString
-from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+
+def _set_flow_style(d: dict, *fields) -> dict:
+    for f in fields:
+        if f not in d:
+            continue
+        match d[f]:
+            case list():
+                d[f] = CommentedSeq(d[f])
+            case dict():
+                d[f] = CommentedMap(d[f])
+            case _:
+                continue
+        d[f].fa.set_flow_style()
+    return d
 
 
 class Input[T](Element):
@@ -253,8 +270,6 @@ class Step(Element):
             if run[-1] != "\n":
                 run += "\n"
             ret["run"] = LiteralScalarString(run)
-        ret = CommentedMap(ret)
-        ret.fa.set_block_style()
         return ret
 
 
@@ -276,8 +291,9 @@ class Matrix(Element):
 
     def asdict(self) -> dict[str, Any]:
         ret = Element.asdict(cast(Element, self))
-        ret |= ret.pop("values", {})
-        return ret
+        values = ret.pop("values", {})
+        ret |= values
+        return _set_flow_style(ret, *values)
 
 
 class Strategy(Element):
@@ -313,13 +329,7 @@ class Job(Element):
     steps: list[Step]
 
     def asdict(self) -> typing.Any:
-        ret = super().asdict()
-        outputs = ret.get("outputs")
-        if outputs:
-            outputs = CommentedMap(outputs)
-            outputs.fa.set_block_style()
-            ret["outputs"] = outputs
-        return ret
+        return _set_flow_style(super().asdict(), "needs")
 
 
 class Workflow(Element):
