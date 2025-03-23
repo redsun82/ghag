@@ -143,6 +143,28 @@ def test_job_runs_on():
 
 @expect(
     """
+# generated from test_workflow.py::test_multiline_run_code_dedented
+on: {}
+jobs:
+  test_multiline_run_code_dedented:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        echo one
+        echo two
+        echo three
+"""
+)
+def test_multiline_run_code_dedented():
+    run("""
+        echo one
+        echo two
+        echo three
+    """) # fmt: skip
+
+
+@expect(
+    """
 # generated from test_workflow.py::test_strategy_with_cross_matrix
 on: {}
 jobs:

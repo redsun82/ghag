@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import inspect
 import itertools
+import textwrap
 import typing
 from dataclasses import dataclass, fields, asdict
 import pathlib
@@ -557,6 +558,8 @@ class _StepUpdater:
     def run(self, code: Value[str]):
         ret = self._ensure_run_step()
         _ctx.validate(code, target=ret._step, field="run")
+        if isinstance(code, str):
+            code = textwrap.dedent(code.strip("\n"))
         ret._step.run = code
         return ret
 
