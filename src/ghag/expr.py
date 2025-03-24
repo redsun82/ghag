@@ -355,25 +355,28 @@ class CallExpr(Expr):
 
 @dataclasses.dataclass
 class ProxyExpr(Expr):
-    _expr: typing.Callable[[], Expr] | Expr
-    _called: bool = False
+    _filled_expr: Expr | None = None
+
+    def _get_expr(self) -> Expr: ...
 
     @property
-    def _actual_expr(self) -> Expr:
-        if not self._called:
-            self._expr = self._expr()
-            self._called = True
-        return self._expr
+    def _expr(self) -> Expr:
+        if self._filled_expr is None:
+            self._filled_expr = self._get_expr()
+            assert self._filled_expr is not None
+        return self._filled_expr
 
     @property
     def _syntax(self) -> str:
-        return self._actual_expr._syntax
+        return self._expr._syntax
 
     def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
-        return self._actual_expr._get_paths()
+        return self._expr._get_paths()
 
     def __getattr__(self, item: str) -> typing.Any:
-        return getattr(self._actual_expr, item)
+        if item.startswith("_"):
+            raise AttributeError(item)
+        return getattr(self._expr, item)
 
 
 @dataclasses.dataclass

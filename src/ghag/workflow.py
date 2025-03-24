@@ -5,7 +5,7 @@ from ruamel.yaml import CommentedSeq
 
 from .element import Element
 from typing import Any, cast
-from .expr import Value, Expr, ProxyExpr, RefExpr, instantiate
+from .expr import Value, Expr, ProxyExpr, RefExpr, instantiate, ErrorExpr
 from dataclasses import field
 from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -56,12 +56,19 @@ class Input[T](Element):
             raise ValueError(f"unexpected input type `{self.type}`")
 
 
+@dataclasses.dataclass
 class InputProxy(ProxyExpr):
+    key: str | None = None
     proxied: list[Input] = dataclasses.field(default_factory=list)
 
     def __init__(self, key: str, *proxied: Input):
-        super().__init__(lambda: RefExpr("inputs", key))
+        self.key = key
         self.proxied = list(proxied)
+
+    def _get_expr(self) -> Expr:
+        if self.key is None:
+            return ~ErrorExpr("no key set for this input")
+        return RefExpr("inputs", self.key)
 
     def __setattr__(self, name, value):
         if any(f.name == name for f in dataclasses.fields(Input)):

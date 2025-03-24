@@ -509,11 +509,21 @@ def _ensure_step_id(s: Step) -> str:
 
 
 @dataclass
-class _StepUpdater:
+class _StepUpdater(ProxyExpr):
     _step: Step | None = None
+
+    def __init__(self, step: Step | None = None):
+        super().__init__()
+        self._step = step
 
     def __call__(self, name: Value[str]) -> typing.Self:
         return self.name(name)
+
+    def _get_expr(self) -> Expr:
+        if self._step is None:
+            return ~ErrorExpr("`step` alone cannot be used in an expression")
+        id = self.ensure_id()
+        return getattr(Contexts.steps, id)
 
     def _ensure_step(self) -> typing.Self:
         if self._step is not None:
@@ -532,7 +542,7 @@ class _StepUpdater:
 
     def _ensure_use_step(self) -> typing.Self:
         ret = self._ensure_step()
-        if ret._step.run or ret._step.env:
+        if ret._step.run:
             _ctx.error("cannot turn a `run` step into a `use` one")
         return ret
 
@@ -629,27 +639,6 @@ class _StepUpdater:
     def ensure_id(self) -> str:
         return _ensure_step_id(self._ensure_step()._step)
 
-    @property
-    def outputs(self):
-        if self._step is None:
-            raise AttributeError("outputs")
-        id = self.ensure_id()
-        return getattr(steps, id).outputs
-
-    @property
-    def outcome(self):
-        if self._step is None:
-            raise AttributeError("outcome")
-        id = self.ensure_id()
-        return getattr(steps, id).outcome
-
-    @property
-    def result(self):
-        if self._step is None:
-            raise AttributeError("result")
-        id = self.ensure_id()
-        return getattr(steps, id).result
-
 
 step = _StepUpdater()
 run = step.run
@@ -689,12 +678,12 @@ def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typin
             case _, RefExpr():
                 key = arg._segments[-1]
                 _WorkflowOrJobUpdaters.outputs(((key, arg),))
-            case _, Expr():
-                unsupported()
             case Job(), _StepUpdater():
                 _dump_step_outputs(arg._step)
             case Workflow(), _StepUpdater():
                 _ctx.error(f"a step cannot be returned as a workflow output")
+            case _, Expr():  # this must be done to avoid comparing Expr with "*"
+                unsupported()
             case Job(), "*":
                 for s in instance.steps:
                     if s.outputs:
