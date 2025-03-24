@@ -424,10 +424,10 @@ jobs:
 )
 def test_workflow_dispatch_inputs():
     on.workflow_dispatch()
-    foo = input(description="a foo", required=True)
-    bar = input("a bar", type="boolean")
-    baz = input(options=["a", "b", "c"], default="b")
-    an_env = input(type="environment")
+    foo = input.description("a foo").required()
+    bar = input("a bar").type("boolean")
+    baz = input.options("a", "b", "c").default("b")
+    an_env = input.type("environment")
     run(f"""
         echo {foo}
         echo {bar}
@@ -475,9 +475,9 @@ jobs:
 def test_workflow_call():
     on.workflow_call.secret("token", required=True).secret("auth", "auth if provided")
 
-    foo = input(required=True)
-    bar = input(type="boolean")
-    baz = input(type="choice", options=["a", "b", "c"], default="b")
+    foo = input.required()
+    bar = input.type("boolean")
+    baz = input.options("a", "b", "c").default("b")
 
     run(f"""
         echo {foo}
@@ -499,7 +499,11 @@ on:
       bar:
         required: false
         default: 42
-        type: string
+        type: number
+      baz:
+        required: false
+        default: true
+        type: boolean
   workflow_dispatch:
     inputs:
       foo:
@@ -509,7 +513,11 @@ on:
       bar:
         required: false
         default: 42
-        type: string
+        type: number
+      baz:
+        required: false
+        default: true
+        type: boolean
 jobs:
   test_inputs:
     runs-on: ubuntu-latest
@@ -517,15 +525,18 @@ jobs:
     - run: |
         echo ${{ inputs.foo }}
         echo ${{ inputs.bar }} 
+        echo ${{ inputs.baz }}
 """
 )
 def test_inputs():
     on.workflow_dispatch().workflow_call()
-    foo = input("a foo", required=True)
-    bar = input(default=42)
+    foo = input("a foo").required()
+    bar = input.default(42)
+    baz = input.default(True)
     run(f"""
         echo {foo}
         echo {bar} 
+        echo {baz}
     """)  # fmt: skip
 
 

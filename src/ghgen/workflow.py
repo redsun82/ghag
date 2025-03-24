@@ -45,7 +45,7 @@ class Input[T](Element):
         return ret
 
     def __post_init__(self):
-        if self.type is None and self.default is not None:
+        if self.default is not None:
             self.type = type(self.default)
         if self.type is bool:
             self.type = "boolean"

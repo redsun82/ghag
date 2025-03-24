@@ -109,16 +109,16 @@ def test_workflow_fields_in_auto_job(error):
 @expect_errors
 def test_wrong_input(error):
     error(
-        "`input` must be called after setting either `on.workflow_call` or `on.workflow_dispatch`"
+        "`input` must be used after setting either `on.workflow_call` or `on.workflow_dispatch`"
     )
     input()
     on.workflow_dispatch()
     error("unexpected input type `list[int]`")
-    input(type=list[int])
+    input.type(list[int])
 
     @job
     def j():
-        error("`input` can only be called in a workflow")
+        error("`input` can only be used in a workflow")
         input()
 
 
