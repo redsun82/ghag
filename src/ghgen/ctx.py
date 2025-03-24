@@ -369,7 +369,6 @@ class GenerationError(Exception):
 class WorkflowInfo:
     id: str
     spec: typing.Callable[..., None]
-    inputs: dict[str, Input]
     errors: list[Error]
     file: pathlib.Path
 
@@ -378,15 +377,7 @@ class WorkflowInfo:
             for e in self.errors:
                 e.workflow_id = e.workflow_id or current_workflow_id()
             _ctx.errors += self.errors
-            inputs = {
-                key: (
-                    input(key, **{f.name: getattr(i, f.name) for f in fields(i)})
-                    if i is not None
-                    else CallExpr("error")
-                )
-                for key, i in self.inputs.items()
-            }
-            self.spec(**inputs)
+            self.spec()
             return wf
 
 
@@ -396,34 +387,8 @@ def workflow(
     if func is None:
         return lambda func: workflow(func, id=id)
     id = id or func.__name__
-    signature = inspect.signature(func)
-    inputs = {}
     errors = []
-    for key, param in signature.parameters.items():
-        key = key.replace("_", "-")
-        default = (
-            param.default if param.default is not inspect.Parameter.empty else None
-        )
-        ty = param.annotation
-        if ty is inspect.Parameter.empty:
-            ty = default and type(default)
-        elif ty is None:
-            # force error with correct error message
-            ty = "None"
-        try:
-            inputs[key] = Input(
-                required=param.default is inspect.Parameter.empty,
-                type=ty,
-                default=default,
-            )
-        except ValueError as e:
-            errors.append(
-                _ctx.make_error(f"{e.args[0]} for workflow parameter `{key}`", id)
-            )
-            inputs[key] = None
-    return WorkflowInfo(
-        id, func, inputs, errors, file=pathlib.Path(inspect.getfile(func))
-    )
+    return WorkflowInfo(id, func, errors, file=pathlib.Path(inspect.getfile(func)))
 
 
 type JobCall = typing.Callable[..., None]
@@ -496,7 +461,11 @@ class _InputUpdater(ProxyExpr):
         self._input = input
 
     def __call__(self, *args, **kwargs) -> typing.Self:
-        inp = Input(*args, **kwargs)
+        try:
+            inp = Input(*args, **kwargs)
+        except ValueError as e:
+            _ctx.error(e.args[0])
+            return self
         if not _ctx.current_workflow or _ctx.current_job:
             _ctx.error("`input` can only be called in a workflow")
             return self

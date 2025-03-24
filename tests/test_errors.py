@@ -106,22 +106,20 @@ def test_workflow_fields_in_auto_job(error):
     on.workflow_dispatch()
 
 
-def test_wrong_annotation():
-    @workflow
-    def wf(x: None, y: list[int]):
-        pass
+@expect_errors
+def test_wrong_input(error):
+    error(
+        "`input` must be called after setting either `on.workflow_call` or `on.workflow_dispatch`"
+    )
+    input()
+    on.workflow_dispatch()
+    error("unexpected input type `list[int]`")
+    input(type=list[int])
 
-    with pytest.raises(GenerationError) as e:
-        wf.instantiate()
-    assert e.value.errors == [
-        Error(
-            __file__,
-            lineno=inspect.getsourcelines(test_wrong_annotation)[1] + 1,
-            workflow_id="wf",
-            message=f"unexpected input type `{t}` for workflow parameter `{p}`",
-        )
-        for p, t in (("x", "None"), ("y", "list[int]"))
-    ]
+    @job
+    def j():
+        error("`input` can only be called in a workflow")
+        input()
 
 
 @expect_errors
