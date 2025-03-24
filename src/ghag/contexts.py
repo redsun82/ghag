@@ -60,6 +60,8 @@ class Contexts:
 
     runner: Runner
 
+    inputs: FlatMap
+
 
 steps = Contexts.steps
 matrix = Contexts.matrix

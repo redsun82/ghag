@@ -271,14 +271,11 @@ def test_strategy_in_workflow():
     """
 # generated from test_workflow.py::test_matrix_from_input
 on:
-  workflow_call:
-    inputs:
-      i:
-        required: true
   workflow_dispatch:
     inputs:
       i:
-        required: true
+        required: false
+        type: string
 jobs:
   test_matrix_from_input:
     runs-on: ubuntu-latest
@@ -290,7 +287,9 @@ jobs:
       if: contains(inputs.i, 'failed')
 """
 )
-def test_matrix_from_input(i):
+def test_matrix_from_input():
+    on.workflow_dispatch()
+    i = input()
     strategy.matrix(fromJson(i))
     run(f"{matrix.foo}, {matrix.bar}")
     step("Fail").if_(contains(i, "failed"))
@@ -412,17 +411,29 @@ on:
       an_env:
         required: false
         type: environment
-jobs: {}
+jobs:
+  test_workflow_dispatch_inputs:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        echo ${{ inputs.foo }}
+        echo ${{ inputs.bar }}
+        echo ${{ inputs.baz }}
+        echo ${{ inputs.an_env }}
 """
 )
 def test_workflow_dispatch_inputs():
-    on.workflow_dispatch.input("foo", description="a foo", required=True).input(
-        "bar", "a bar", type="boolean"
-    )
-    on.workflow_dispatch.input(
-        "baz", type="choice", options=["a", "b", "c"], default="b"
-    )
-    on.workflow_dispatch.input("an_env", type="environment")
+    on.workflow_dispatch()
+    foo = input(description="a foo", required=True)
+    bar = input("a bar", type="boolean")
+    baz = input(options=["a", "b", "c"], default="b")
+    an_env = input(type="environment")
+    run(f"""
+        echo {foo}
+        echo {bar}
+        echo {baz}
+        echo {an_env}
+    """)  # fmt: skip
 
 
 @expect(
@@ -430,6 +441,12 @@ def test_workflow_dispatch_inputs():
 # generated from test_workflow.py::test_workflow_call
 on:
   workflow_call:
+    secrets:
+      token:
+        required: true
+      auth:
+        description: auth if provided
+        required: false
     inputs:
       foo:
         required: true
@@ -445,23 +462,28 @@ on:
         - a
         - b
         - c
-    secrets:
-      token:
-        required: true
-      auth:
-        description: auth if provided
-        required: false
-jobs: {}
+jobs:
+  test_workflow_call:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        echo ${{ inputs.foo }}
+        echo ${{ inputs.bar }}
+        echo ${{ inputs.baz }}
 """
 )
 def test_workflow_call():
-    (
-        on.workflow_call.input("foo", required=True)
-        .input("bar", type="boolean")
-        .input("baz", type="choice", options=["a", "b", "c"], default="b")
-        .secret("token", required=True)
-        .secret("auth", "auth if provided")
-    )
+    on.workflow_call.secret("token", required=True).secret("auth", "auth if provided")
+
+    foo = input(required=True)
+    bar = input(type="boolean")
+    baz = input(type="choice", options=["a", "b", "c"], default="b")
+
+    run(f"""
+        echo {foo}
+        echo {bar}
+        echo {baz}
+    """)  # fmt: skip
 
 
 @expect(
@@ -477,7 +499,7 @@ on:
       bar:
         required: false
         default: 42
-        type: number
+        type: string
   workflow_dispatch:
     inputs:
       foo:
@@ -487,123 +509,24 @@ on:
       bar:
         required: false
         default: 42
-        type: number
-jobs: {}
+        type: string
+jobs:
+  test_inputs:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        echo ${{ inputs.foo }}
+        echo ${{ inputs.bar }} 
 """
 )
 def test_inputs():
-    input("foo", description="a foo", required=True)
-    input("bar", type="number", default=42)
-
-
-@expect(
-    """
-# generated from test_workflow.py::test_trigger_removal
-on:
-  workflow_call:
-    inputs:
-      foo:
-        description: a foo
-        required: false
-        type: string
-jobs: {}
-"""
-)
-def test_trigger_removal():
-    input("foo", "a foo")
-    on.workflow_dispatch(None)
-
-
-@expect(
-    """
-# generated from test_workflow.py::test_use_input_as_expr
-on:
-  workflow_call:
-    inputs:
-      foo:
-        description: a foo
-        required: false
-        type: string
-  workflow_dispatch:
-    inputs:
-      foo:
-        description: a foo
-        required: false
-        type: string
-jobs:
-  test_use_input_as_expr:
-    runs-on: ubuntu-latest
-    steps:
-    - run: foo is ${{ inputs.foo }}
-"""
-)
-def test_use_input_as_expr():
-    foo = input("foo", "a foo")
-    run(f"foo is {foo}")
-
-
-@expect(
-    """
-# generated from test_workflow.py::test_inputs_from_parameters
-on:
-  workflow_call:
-    inputs:
-      foo:
-        description: a foo
-        required: true
-        type: number
-      bar:
-        required: true
-        type: choice
-        options:
-        - apple
-        - orange
-        - banana
-      c:
-        required: true
-        type: choice
-        options:
-        - one
-        - two
-      baz:
-        required: false
-        default: 42
-        type: number
-  workflow_dispatch:
-    inputs:
-      foo:
-        description: a foo
-        required: true
-        type: number
-      bar:
-        required: true
-        type: choice
-        options:
-        - apple
-        - orange
-        - banana
-      c:
-        required: true
-        type: choice
-        options:
-        - one
-        - two
-      baz:
-        required: false
-        default: 42
-        type: number
-jobs:
-  test_inputs_from_parameters:
-    runs-on: ubuntu-latest
-    steps:
-    - run: foo is ${{ inputs.foo }}
-"""
-)
-def test_inputs_from_parameters(foo: int, bar, c: typing.Literal["one", "two"], baz=42):
-    foo.description = "a foo"
-    bar.type = "choice"
-    bar.options = ["apple", "orange", "banana"]
-    run(f"foo is {foo}")
+    on.workflow_dispatch().workflow_call()
+    foo = input("a foo", required=True)
+    bar = input(default=42)
+    run(f"""
+        echo {foo}
+        echo {bar} 
+    """)  # fmt: skip
 
 
 @expect(

@@ -374,6 +374,8 @@ class ProxyExpr(Expr):
         return self._expr._get_paths()
 
     def __getattr__(self, item: str) -> typing.Any:
+        if item in ("_expr", "_syntax"):  # why is this necessary?
+            return getattr(ProxyExpr, item).__get__(self)
         if item.startswith("_"):
             raise AttributeError(item)
         return getattr(self._expr, item)

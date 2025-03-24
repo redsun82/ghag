@@ -467,16 +467,6 @@ def needs(*args: RefExpr) -> list[str]:
     return prereqs
 
 
-def input(key: str, *args, **kwargs) -> InputProxy:
-    on.workflow_dispatch.input(key, *args, **kwargs)
-    on.workflow_call.input(key, *args, **kwargs)
-    return InputProxy(
-        key,
-        current().on.workflow_dispatch.inputs[key],
-        current().on.workflow_call.inputs[key],
-    )
-
-
 strategy = _JobUpdaters.strategy
 container = _JobUpdaters.container
 service = _JobUpdaters.service
@@ -495,6 +485,58 @@ def _allocate_id(
 def _get_var_name(pred: typing.Callable[[object], bool]) -> str | None:
     frame = _get_user_frame()
     return next((var for var, value in frame.f_locals.items() if pred(value)), None)
+
+
+@dataclass
+class _InputUpdater(ProxyExpr):
+    _input: Input | None = None
+
+    def __init__(self, input: Input | None = None):
+        super().__init__()
+        self._input = input
+
+    def __call__(self, *args, **kwargs) -> typing.Self:
+        inp = Input(*args, **kwargs)
+        if not _ctx.current_workflow or _ctx.current_job:
+            _ctx.error("`input` can only be called in a workflow")
+            return self
+        triggers = (
+            _ctx.current_workflow.on.workflow_call,
+            _ctx.current_workflow.on.workflow_dispatch,
+        )
+        if all(t is None for t in triggers):
+            _ctx.error(
+                "`input` must be called after setting either `on.workflow_call` or `on.workflow_dispatch`"
+            )
+            return self
+        for t in triggers:
+            if t is not None:
+                if inp.id is not None and any(inp.id == i.id for i in t.inputs or ()):
+                    _ctx.error(
+                        f"input `{inp.id}` already defined in `{t.__class__.__name__}`"
+                    )
+                if t.inputs is None:
+                    t.inputs = []
+                t.inputs.append(inp)
+        return _InputUpdater(inp)
+
+    def ensure_id(self) -> str:
+        if self._input is None:
+            self = self()
+        if self._input.id is None:
+            id = _get_var_name(lambda v: v is self)
+            self._input.id = _allocate_id(
+                id or "input",
+                lambda id: all(i.id != id for i in _ctx.current_workflow.inputs),
+                start_from_one=id is None,
+            )
+        return self._input.id
+
+    def _get_expr(self) -> Expr:
+        if self._input is None:
+            return ~ErrorExpr("`input` alone cannot be used in an expression")
+        id = self.ensure_id()
+        return getattr(Contexts.inputs, id)
 
 
 def _ensure_step_id(s: Step) -> str:
@@ -640,6 +682,7 @@ class _StepUpdater(ProxyExpr):
         return _ensure_step_id(self._ensure_step()._step)
 
 
+input = _InputUpdater()
 step = _StepUpdater()
 run = step.run
 use = step.uses

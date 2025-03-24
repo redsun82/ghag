@@ -33,10 +33,16 @@ class Input[T](Element):
 
     description: str
     _: dataclasses.KW_ONLY
+    id: str
     required: bool = False
     default: T
     type: Type = "string"
     options: list[str]
+
+    def asdict(self) -> typing.Any:
+        ret = super().asdict()
+        ret.pop("id", None)
+        return ret
 
     def __post_init__(self):
         if self.type is None and self.default is not None:
@@ -54,28 +60,8 @@ class Input[T](Element):
             self.type = "environment"
         elif self.type not in (None,) + tuple(typing.get_args(self.Type)):
             raise ValueError(f"unexpected input type `{self.type}`")
-
-
-@dataclasses.dataclass
-class InputProxy(ProxyExpr):
-    key: str | None = None
-    proxied: list[Input] = dataclasses.field(default_factory=list)
-
-    def __init__(self, key: str, *proxied: Input):
-        self.key = key
-        self.proxied = list(proxied)
-
-    def _get_expr(self) -> Expr:
-        if self.key is None:
-            return ~ErrorExpr("no key set for this input")
-        return RefExpr("inputs", self.key)
-
-    def __setattr__(self, name, value):
-        if any(f.name == name for f in dataclasses.fields(Input)):
-            for p in self.proxied:
-                setattr(p, name, value)
-        else:
-            super().__setattr__(name, value)
+        if self.options:
+            self.type = "choice"
 
 
 class Secret(Element):
@@ -169,14 +155,27 @@ class Schedule(Element):
     cron: str
 
 
+def _dictionarize_inputs(inputs: list[Input], d: dict) -> dict:
+    if inputs is None:
+        return d
+    serialized: list[Input] = d.pop("inputs")
+    d["inputs"] = {s.id: i for s, i in zip(inputs, serialized) if s.id}
+    return d
+
+
 class WorkflowDispatch(Element):
-    inputs: dict[str, Input]
+    inputs: list[Input]
+
+    def asdict(self) -> typing.Any:
+        return _dictionarize_inputs(self.inputs, super().asdict())
 
 
 class WorkflowCall(Element):
-    inputs: dict[str, Input]
+    inputs: list[Input]
     secrets: dict[str, Secret]
-    # TODO outputs
+
+    def asdict(self) -> typing.Any:
+        return _dictionarize_inputs(self.inputs, super().asdict())
 
 
 class On(Element):
@@ -351,3 +350,19 @@ class Workflow(Element):
     outputs: dict[str, Value]
     env: dict[str, Value]
     jobs: dict[str, Job] = field(default_factory=dict)
+
+    @property
+    def inputs(self) -> list[Input]:
+        inputs = {
+            id(i): i
+            for t in (self.on.workflow_call, self.on.workflow_dispatch)
+            if t is not None
+            for i in t.inputs or ()
+        }
+        inputs = {
+            id(i): i
+            for t in (self.on.workflow_call, self.on.workflow_dispatch)
+            if t is not None
+            for i in t.inputs or ()
+        }
+        return [*inputs.values()]
