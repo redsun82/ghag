@@ -107,6 +107,30 @@ def test_context_with_call_operator():
     assert m.mock_calls == [unittest.mock.call(1, 2, 3, a=4, b=5)]
 
 
+def test_context_using_dashes():
+    @contexts
+    class Contexts:
+        class MyX(RefExpr):
+            _use_dashes = True
+
+            my_a: RefExpr
+
+            class MyY(RefExpr):
+                my_b: RefExpr
+
+            my_y: MyY
+
+            __getattr__: Map[RefExpr]
+
+        my_x: MyX
+
+    my_x = Contexts.my_x
+
+    assert instantiate(my_x.my_a) == "${{ my_x.my-a }}"
+    assert instantiate(my_x.my_y.my_b) == "${{ my_x.my-y.my_b }}"
+    assert instantiate(my_x.my_foo) == "${{ my_x.my-foo }}"
+
+
 def test_nested_context():
     @contexts
     class Contexts:

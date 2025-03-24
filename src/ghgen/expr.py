@@ -211,7 +211,10 @@ def contexts[T](cls: type[T]) -> type[T]:
         if annotation is RefExpr:
             return
 
+        use_dashes = getattr(annotation, "_use_dashes", False)
+
         def child_factory(key: str, a: type) -> RefExpr:
+            key = key.replace("_", "-") if use_dashes else key
             ret = RefExpr(*ref._segments, key)
             process(ret, a)
             return ret
