@@ -395,12 +395,11 @@ type JobCall = typing.Callable[..., None]
 
 
 class _Job(ProxyExpr):
-    @classmethod
     def __call__(
-        cls, func: JobCall | None = None, *, id: str | None = None
+        self, func: JobCall | None = None, *, id: str | None = None
     ) -> typing.Callable[[JobCall], Expr] | Expr:
         if func is None:
-            return lambda func: cls.__call__(func, id=id)
+            return lambda func: self(func, id=id)
         id = id or func.__name__
         with _ctx.build_job(id) as j:
             func()
@@ -436,7 +435,39 @@ def needs(*args: RefExpr) -> list[str]:
     return prereqs
 
 
-strategy = _JobUpdaters.strategy
+class _StrategyUpdater(ProxyExpr):
+    def __call__(self, *args, **kwargs):
+        return _JobUpdaters.strategy(*args, **kwargs)
+
+    def _get_expr(self) -> Expr:
+        return Contexts.strategy
+
+    class FailFastUpdater(ProxyExpr):
+        def __call__(self, value: Value[bool] = True):
+            return _JobUpdaters.strategy.fail_fast(value)
+
+        def _get_expr(self) -> Expr:
+            return Contexts.strategy.fail_fast
+
+    fail_fast = FailFastUpdater()
+
+    class MaxParallelUpdater(ProxyExpr):
+        def __call__(self, value: Value[int] = True):
+            return _JobUpdaters.strategy.max_parallel(value)
+
+        def _get_expr(self) -> Expr:
+            return Contexts.strategy.max_parallel
+
+    max_parallel = MaxParallelUpdater()
+
+    def matrix(self, *args, **kwargs):
+        return _JobUpdaters.strategy.matrix(*args, **kwargs)
+
+    job_index: RefExpr
+    job_total: RefExpr
+
+
+strategy = _StrategyUpdater()
 container = _JobUpdaters.container
 service = _JobUpdaters.service
 

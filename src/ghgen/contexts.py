@@ -62,6 +62,16 @@ class Contexts:
 
     inputs: FlatMap
 
+    class Strategy(RefExpr):
+        _use_dashes = True
+
+        fail_fast: RefExpr
+        job_index: RefExpr
+        job_total: RefExpr
+        max_parallel: RefExpr
+
+    strategy: Strategy
+
 
 steps = Contexts.steps
 matrix = Contexts.matrix

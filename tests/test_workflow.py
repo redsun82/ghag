@@ -932,3 +932,33 @@ def test_services():
     service("redis", ports=["6379/tcp"])
     run(f"echo {job.services.nginx.id}")
     run(f"echo {job.services.redis.ports[6379]}")
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_strategy_as_context
+on: {}
+jobs:
+  test_strategy_as_context:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        a: [1, 2, 3]
+    steps:
+    - run: |
+        echo ${{ strategy }}
+        echo ${{ strategy.fail-fast }}
+        echo ${{ strategy.max-parallel }}
+        echo ${{ strategy.job-index }}
+        echo ${{ strategy.job-total }}
+"""
+)
+def test_strategy_as_context():
+    strategy.matrix(a=[1, 2, 3])
+    run(f"""
+        echo {strategy}
+        echo {strategy.fail_fast}
+        echo {strategy.max_parallel}
+        echo {strategy.job_index}
+        echo {strategy.job_total}
+    """)  # fmt: skip
