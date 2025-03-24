@@ -394,19 +394,23 @@ def workflow(
 type JobCall = typing.Callable[..., None]
 
 
-def _interpret_job(
-    func: JobCall | None = None, *, id: str | None = None
-) -> typing.Callable[[JobCall], Expr] | Expr:
-    if func is None:
-        return lambda func: _interpret_job(func, id=id)
-    id = id or func.__name__
-    with _ctx.build_job(id) as j:
-        func()
-        return getattr(Contexts.needs, id)
+class _Job(ProxyExpr):
+    @classmethod
+    def __call__(
+        cls, func: JobCall | None = None, *, id: str | None = None
+    ) -> typing.Callable[[JobCall], Expr] | Expr:
+        if func is None:
+            return lambda func: cls.__call__(func, id=id)
+        id = id or func.__name__
+        with _ctx.build_job(id) as j:
+            func()
+            return getattr(Contexts.needs, id)
+
+    def _get_expr(self) -> Expr:
+        return Contexts.job
 
 
-job._make_callable(_interpret_job)
-
+job = _Job()
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
 env = _WorkflowOrJobUpdaters.env

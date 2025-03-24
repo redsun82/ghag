@@ -90,23 +90,6 @@ def test_simple_context():
         ]
 
 
-def test_context_with_call_operator():
-    m = unittest.mock.Mock()
-
-    @contexts
-    class Contexts:
-        class X(RefExpr):
-            a: RefExpr
-            b: RefExpr
-
-        x: X
-
-    x = Contexts.x
-    x._make_callable(m)
-    x(1, 2, 3, a=4, b=5)
-    assert m.mock_calls == [unittest.mock.call(1, 2, 3, a=4, b=5)]
-
-
 def test_context_using_dashes():
     @contexts
     class Contexts:

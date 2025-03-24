@@ -146,7 +146,6 @@ def reftree(x: typing.Any) -> RefTree:
 class RefExpr(Expr):
     _segments: tuple[str, ...]
     _child_factory: typing.Callable[[str], typing.Self] | None = None
-    _callable: typing.Callable | None = None
 
     _store: typing.ClassVar[dict[tuple[str, ...], weakref.ReferenceType["RefExpr"]]] = (
         {}
@@ -173,15 +172,6 @@ class RefExpr(Expr):
     def __init__(self, *args: str):
         super().__init__()
         object.__setattr__(self, "_segments", args)
-
-    def _make_callable(self, func: typing.Callable):
-        assert callable(func)
-        object.__setattr__(self, "_callable", func)
-
-    def __call__(self, *args, **kwargs):
-        if not self._callable:
-            raise TypeError("'RefCall' object is not callable")
-        return self._callable(*args, **kwargs)
 
     @property
     def _path(self) -> str:
