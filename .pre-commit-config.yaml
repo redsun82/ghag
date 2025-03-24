@@ -14,9 +14,9 @@ repos:
         entry: uv run pytest
         files: \.py$|pyproject\.toml$
         pass_filenames: false
-      - id: ghag
+      - id: gh-gen
         name: "generate"
         language: system
-        entry: uv run ghag
+        entry: uv run gh-gen
         files: \.py$|pyproject\.toml|\.yml$
         pass_filenames: false

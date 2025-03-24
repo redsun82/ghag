@@ -1,4 +1,4 @@
-from ghag.ctx import *
+from ghgen.ctx import *
 
 
 @workflow
@@ -8,4 +8,4 @@ def check():
     use("astral-sh/setup-uv@v5")
     step("Check formatting").run("uv run black --check .")
     step("Run tests").if_(~cancelled()).run("uv run pytest")
-    step("Check generation").if_(~cancelled()).run("uv run ghag --check")
+    step("Check generation").if_(~cancelled()).run("uv run ghgen --check")

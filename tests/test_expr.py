@@ -1,6 +1,6 @@
 import pytest
 
-from src.ghag.expr import *
+from src.ghgen.expr import *
 import unittest.mock
 
 

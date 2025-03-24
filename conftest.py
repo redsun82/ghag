@@ -3,8 +3,8 @@ import sys
 
 import pytest
 
-from src.ghag.ctx import workflow, GenerationError
-from src.ghag import generate_workflow
+from src.ghgen.ctx import workflow, GenerationError
+from src.ghgen import generate_workflow
 import pathlib
 import inspect
 import dis

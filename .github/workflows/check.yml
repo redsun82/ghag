@@ -17,4 +17,4 @@ jobs:
       run: uv run pytest
     - name: Check generation
       if: '!cancelled()'
-      run: uv run ghag --check
+      run: uv run ghgen --check

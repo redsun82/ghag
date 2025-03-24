@@ -3,7 +3,7 @@ import inspect
 import pytest
 
 from conftest import expect_errors
-from src.ghag.ctx import *
+from src.ghgen.ctx import *
 
 
 @expect_errors

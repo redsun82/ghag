@@ -1,7 +1,7 @@
 import typing
 
 from conftest import expect
-from src.ghag.ctx import *
+from src.ghgen.ctx import *
 
 
 @expect(

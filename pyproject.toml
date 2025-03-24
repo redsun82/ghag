@@ -1,5 +1,5 @@
 [project]
-name = "ghag"
+name = "ghgen"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ghag = "ghag:main"
+gh-gen = "ghgen:main"
 
 [build-system]
 requires = ["hatchling"]

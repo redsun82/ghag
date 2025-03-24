@@ -78,7 +78,7 @@ def relativized_path(p: str | pathlib.Path) -> pathlib.Path:
 
 def generate(opts: argparse.Namespace):
     sys.path.extend(map(str, opts.includes))
-    sys.modules["ghag"] = sys.modules[__name__]
+    sys.modules["ghgen"] = sys.modules[__name__]
     inputs = opts.inputs or opts.includes
     failed = False
     found = False
