@@ -260,13 +260,19 @@ class On(Element):
     workflow_dispatch: WorkflowDispatch
     workflow_run: TypedTrigger("completed", "in_progress", "requested")
 
+    @property
+    def has_triggers(self) -> bool:
+        return any(
+            getattr(self, field.name) is not None for field in dataclasses.fields(self)
+        )
+
 
 class Step(Element):
     id: str
     name: Value
     if_: Value
     continue_on_error: Value
-    run: Value
+    run: Value = ""
     env: dict[str, Value]
     uses: str
     with_: dict[str, Value]

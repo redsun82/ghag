@@ -13,13 +13,19 @@ on:
     branches:
     - main
   workflow_dispatch: {}
-jobs: {}
+jobs:
+  test_basic:
+    name: My workflow
+    runs-on: ubuntu-latest
+    steps:
+    - run: ''
 """
 )
 def test_basic():
     name("My workflow")
     on.pull_request(branches=["main"])
     on.workflow_dispatch()
+    run("")
 
 
 @expect(
@@ -39,7 +45,11 @@ on:
     - foo/**
     ignore-paths:
     - foo/bar/**
-jobs: {}
+jobs:
+  test_pull_request:
+    runs-on: ubuntu-latest
+    steps:
+    - run: ''
 """
 )
 def test_pull_request():
@@ -50,6 +60,7 @@ def test_pull_request():
         paths=["foo/**"],
         ignore_paths=["foo/bar/**"],
     )
+    run("")
 
 
 @expect(
@@ -61,12 +72,17 @@ on:
     - main
     paths:
     - foo/**
-jobs: {}
+jobs:
+  test_merge:
+    runs-on: ubuntu-latest
+    steps:
+    - run: ''
 """
 )
 def test_merge():
     on.pull_request(branches=["main"])
     on.pull_request(paths=["foo/**"])
+    run("")
 
 
 @expect(
@@ -141,7 +157,8 @@ def test_job_runs_on():
 @expect(
     """
 # generated from test_workflow.py::test_multiline_run_code_dedented
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_multiline_run_code_dedented:
     runs-on: ubuntu-latest
@@ -153,6 +170,7 @@ jobs:
 """
 )
 def test_multiline_run_code_dedented():
+    on.workflow_dispatch()
     run("""
         echo one
         echo two
@@ -163,7 +181,8 @@ def test_multiline_run_code_dedented():
 @expect(
     """
 # generated from test_workflow.py::test_strategy_with_cross_matrix
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   a_job:
     runs-on: ubuntu-latest
@@ -176,6 +195,8 @@ jobs:
 """
 )
 def test_strategy_with_cross_matrix():
+    on.workflow_dispatch()
+
     @job
     def a_job():
         strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"])
@@ -185,7 +206,8 @@ def test_strategy_with_cross_matrix():
 @expect(
     """
 # generated from test_workflow.py::test_strategy_with_include_exclude_matrix
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   a_job:
     runs-on: ubuntu-latest
@@ -205,6 +227,8 @@ jobs:
 """
 )
 def test_strategy_with_include_exclude_matrix():
+    on.workflow_dispatch()
+
     @job
     def a_job():
         strategy.matrix(
@@ -219,7 +243,8 @@ def test_strategy_with_include_exclude_matrix():
 @expect(
     """
 # generated from test_workflow.py::test_strategy_with_fail_fast_and_max_parallel
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   a_job:
     runs-on: ubuntu-latest
@@ -234,6 +259,8 @@ jobs:
 """
 )
 def test_strategy_with_fail_fast_and_max_parallel():
+    on.workflow_dispatch()
+
     @job
     def a_job():
         strategy.matrix(x=[1, 2, 3], y=["a", "b", "c"]).fail_fast().max_parallel(5)
@@ -282,6 +309,7 @@ jobs:
     - run: ${{ matrix.foo }}, ${{ matrix.bar }}
     - name: Fail
       if: contains(inputs.i, 'failed')
+      run: ''
 """
 )
 def test_matrix_from_input():
@@ -572,7 +600,8 @@ def test_input_underscores():
 @expect(
     """
 # generated from test_workflow.py::test_id
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_id:
     runs-on: ubuntu-latest
@@ -595,10 +624,13 @@ jobs:
       run: ${{ steps.y.result }}
     - id: step-1
       name: anon0
+      run: ''
     - id: step-2
       name: anon1
+      run: ''
     - id: step-3
       name: anon2
+      run: ''
     - name: use anonymous
       run: |
         ${{ steps.step-1.outcome }}
@@ -607,6 +639,7 @@ jobs:
 """
 )
 def test_id():
+    on.workflow_dispatch()
     x = step.id("one").run("one")
     y = step.run("two")
     yy = step.run("two prime").returns("a")
@@ -624,7 +657,8 @@ def test_id():
 @expect(
     """
 # generated from test_workflow.py::test_step_id_underscores
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_step_id_underscores:
     runs-on: ubuntu-latest
@@ -640,6 +674,7 @@ jobs:
 """
 )
 def test_step_id_underscores():
+    on.workflow_dispatch()
     my_step = run("echo one")
     my_other_step = run("echo two").id("my_other_step")
     yet__another__step = run("echo three")
@@ -649,15 +684,19 @@ def test_step_id_underscores():
 @expect(
     """
 # generated from test_workflow.py::test_steps_array
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   j:
     runs-on: ubuntu-latest
     steps:
     - name: ${{ steps.*.result }}
+      run: ''
 """
 )
 def test_steps_array():
+    on.workflow_dispatch()
+
     @job
     def j():
         step(steps._.result)
@@ -666,7 +705,8 @@ def test_steps_array():
 @expect(
     """
 # generated from test_workflow.py::test_if_expr
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_if_expr:
     runs-on: ubuntu-latest
@@ -680,6 +720,7 @@ jobs:
 """
 )
 def test_if_expr():
+    on.workflow_dispatch()
     x = step.run("one")
     step.run("two").if_(x.outcome == "success")
     step.run("three").if_(~x.outputs)
@@ -688,7 +729,8 @@ def test_if_expr():
 @expect(
     """
 # generated from test_workflow.py::test_implicit_job_outputs
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   j1:
     runs-on: ubuntu-latest
@@ -739,6 +781,8 @@ jobs:
 """
 )
 def test_implicit_job_outputs():
+    on.workflow_dispatch()
+
     @job
     def j1():
         x = step("x").returns(one="a", two="b")
@@ -762,7 +806,8 @@ def test_implicit_job_outputs():
 @expect(
     """
 # generated from test_workflow.py::test_explicit_job_outputs
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   j:
     runs-on: ubuntu-latest
@@ -785,6 +830,8 @@ jobs:
 """
 )
 def test_explicit_job_outputs():
+    on.workflow_dispatch()
+
     @job
     def j():
         strategy.matrix(a=[1, 2, 3])
@@ -867,7 +914,8 @@ def test_jolly_workflow_outputs():
 @expect(
     """
 # generated from test_workflow.py::test_needs
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   j1: {}
   j2:
@@ -889,6 +937,8 @@ jobs:
 """
 )
 def test_needs():
+    on.workflow_dispatch()
+
     @job
     def j1():
         pass
@@ -910,7 +960,8 @@ def test_needs():
 @expect(
     """
 # generated from test_workflow.py::test_job_as_context
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_job_as_context:
     runs-on: ubuntu-latest
@@ -921,6 +972,7 @@ jobs:
 """
 )
 def test_job_as_context():
+    on.workflow_dispatch()
     run("false")
     run(f"echo {job.status}").if_(always())
 
@@ -928,7 +980,8 @@ def test_job_as_context():
 @expect(
     """
 # generated from test_workflow.py::test_container
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   j1:
     runs-on: ubuntu-latest
@@ -953,6 +1006,8 @@ jobs:
 """
 )
 def test_container():
+    on.workflow_dispatch()
+
     @job
     def j1():
         container("node:18").env(NODE_ENV="development").ports([80])
@@ -969,7 +1024,8 @@ def test_container():
 @expect(
     """
 # generated from test_workflow.py::test_services
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_services:
     runs-on: ubuntu-latest
@@ -987,6 +1043,7 @@ jobs:
 """
 )
 def test_services():
+    on.workflow_dispatch()
     service("nginx", image="nginx:latest", ports=["8080:80"])
     service("redis", ports=["6379/tcp"])
     run(f"echo {job.services.nginx.id}")
@@ -996,7 +1053,8 @@ def test_services():
 @expect(
     """
 # generated from test_workflow.py::test_strategy_as_context
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   test_strategy_as_context:
     runs-on: ubuntu-latest
@@ -1013,6 +1071,7 @@ jobs:
 """
 )
 def test_strategy_as_context():
+    on.workflow_dispatch()
     strategy.matrix(a=[1, 2, 3])
     run(f"""
         echo {strategy}
@@ -1026,7 +1085,8 @@ def test_strategy_as_context():
 @expect(
     """
 # generated from test_workflow.py::test_call
-on: {}
+on:
+  workflow_dispatch: {}
 jobs:
   j1:
     uses: foo
@@ -1042,6 +1102,8 @@ jobs:
 """
 )
 def test_call():
+    on.workflow_dispatch()
+
     @job
     def j1():
         call("foo")

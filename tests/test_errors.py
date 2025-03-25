@@ -16,6 +16,7 @@ def test_wrong_types(error):
     env(FOO="bar")
     error("illegal assignment to `env`")
     env(["nope"])
+    run("")
 
 
 @expect_errors
@@ -45,25 +46,20 @@ def test_wrong_jobs(error):
         run("nope")
 
 
-def test_job_outside_workflow():
-    with pytest.raises(GenerationError) as e:
-
+def test_job_outside_workflow(error):
+    with error:
+        # fmt: off
+        error('job `nested` not created directly inside a workflow body')
         @job
-        def no():
-            pass
-
-    assert e.value.errors == [
-        Error(
-            __file__,
-            lineno=inspect.getsourcelines(test_job_outside_workflow)[1] + 3,
-            workflow_id=None,
-            message="job `no` not created directly inside a workflow body",
-        ),
-    ]
+        def nested():
+            run("echo Hello, world")
+        # fmt: on
 
 
 @expect_errors
 def test_auto_job_with_existing_jobs(error):
+    on.workflow_dispatch()
+
     @job
     def a_job():
         pass
@@ -76,6 +72,7 @@ def test_auto_job_with_existing_jobs(error):
 
 @expect_errors
 def test_adding_jobs_to_auto_job(error):
+    on.workflow_dispatch()
     runs_on("x")
 
     # fmt: off
@@ -88,6 +85,8 @@ def test_adding_jobs_to_auto_job(error):
 
 @expect_errors
 def test_workflow_fields_in_job(error):
+    on.workflow_dispatch()
+
     @job
     def a_job():
         name("a name")
@@ -98,6 +97,7 @@ def test_workflow_fields_in_job(error):
 
 @expect_errors
 def test_workflow_fields_in_auto_job(error):
+    on.workflow_dispatch()
     runs_on("x")
 
     error(
@@ -124,6 +124,7 @@ def test_wrong_input(error):
 
 @expect_errors
 def test_unexpected_step_outputs(error):
+    on.workflow_dispatch()
     x = step("x")
     error("`foo` was not declared in step `x`, use `returns()` declare it")
     step("y").run(x.outputs.foo)
@@ -177,10 +178,12 @@ def test_outputs_on_non_call(error):
     on.workflow_dispatch()
     error("`outputs` in a workflow can only be used if `on.workflow_call` is set")
     outputs(x=42)
+    run("")
 
 
 @expect_errors
 def test_undeclared_step_output(error):
+    on.workflow_dispatch()
     x = step("step1").returns("foo")
     error("`bar` was not declared in step `x`, use `returns()` declare it")
     step("step2").run(x.outputs.bar)
@@ -188,6 +191,8 @@ def test_undeclared_step_output(error):
 
 @expect_errors
 def test_wrong_job_needs(error):
+    on.workflow_dispatch()
+
     @job
     def init():
         pass
@@ -213,6 +218,7 @@ def test_wrong_job_needs(error):
 
 @expect_errors
 def test_unavailable_job_contexts(error):
+    on.workflow_dispatch()
     _ = str(matrix)
     _ = str(steps)
     _ = str(job)
@@ -225,6 +231,8 @@ def test_unavailable_job_contexts(error):
 
 @expect_errors
 def test_unavailable_container(error):
+    on.workflow_dispatch()
+
     @job
     def j1():
         error("`job.container` can only be used in a containerized job")
@@ -233,6 +241,8 @@ def test_unavailable_container(error):
 
 @expect_errors
 def test_unavailable_service(error):
+    on.workflow_dispatch()
+
     @job
     def j1():
         error("`job.services` can only be used in a job with services")
@@ -247,6 +257,8 @@ def test_unavailable_service(error):
 
 @expect_errors
 def test_unavailable_matrix_values(error):
+    on.workflow_dispatch()
+
     @job
     def j1():
         strategy.matrix(a=[0])
@@ -280,6 +292,7 @@ def test_unavailable_matrix_values(error):
 
 @expect_errors
 def test_steps_errors(error):
+    on.workflow_dispatch()
 
     error("`steps` can only be used in a job, did you forget a `@job` decoration?")
     env(FOO=steps)
@@ -300,6 +313,7 @@ def test_steps_errors(error):
 
 @expect_errors
 def test_wrong_runner_use(error):
+    on.workflow_dispatch()
     error("`runner` can only be used in a job")
     env(FOO=runner.arch)
 
@@ -315,6 +329,7 @@ def test_wrong_runner_use(error):
 
 @expect_errors
 def test_wrong_strategy_context_use(error):
+    on.workflow_dispatch()
     error("`strategy` can only be used inside a job")
     env(FOO=strategy)
 
@@ -330,6 +345,8 @@ def test_wrong_strategy_context_use(error):
 
 @expect_errors
 def test_wrong_calls(error):
+    on.workflow_dispatch()
+
     @job
     def j1():
         run("echo hello")
@@ -349,3 +366,42 @@ def test_wrong_calls(error):
             "job `j2` cannot set `runs-on` as it has already specified `uses` (with `call`)"
         )
         runs_on("ubuntu-latest")
+
+
+def test_on_must_be_set(error):
+    with error:
+
+        @workflow
+        def w():
+            run("")
+
+        error.id = "w"
+
+        error("workflow `w` must have at least one trigger")
+        _ = w.worfklow
+
+
+def test_at_least_one_job(error):
+    @workflow
+    def w():
+        on.workflow_dispatch()
+
+    error.id = "w"
+
+    with error:
+        error("workflow `w` must have at least one job")
+        _ = w.worfklow
+
+
+def test_all_outputs_set(error):
+    @workflow
+    def w():
+        on.workflow_call.outputs(one="this is a", two="this is b", three="this is c")
+        outputs(two="b")
+        step("")
+
+    error.id = "w"
+
+    with error:
+        error("workflow `w` has no value set for one, three, use `outputs` to set them")
+        _ = w.worfklow

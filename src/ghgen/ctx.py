@@ -95,6 +95,29 @@ class _Context(ContextBase):
             # raise immediately
             raise GenerationError([error])
 
+    def process_final_workflow(self):
+        w = self.current_workflow
+        assert w is not None
+        id = self.current_workflow_id
+        self.check(
+            w.on.has_triggers,
+            f"workflow `{id}` must have at least one trigger",
+        ) and self.check(
+            w.jobs,
+            f"workflow `{id}` must have at least one job",
+        )
+        if w.on.workflow_call and w.on.workflow_call.outputs:
+            print("PROUT", w.on.workflow_call.outputs)
+            unset_outputs = [
+                o
+                for o, info in w.on.workflow_call.outputs.items()
+                if info.value is None
+            ]
+            self.check(
+                not unset_outputs,
+                f"workflow `{id}` has no value set for {', '.join(unset_outputs)}, use `outputs` to set them",
+            )
+
     @contextlib.contextmanager
     def build_workflow(self, id: str) -> typing.Generator[Workflow, None, None]:
         assert self.empty()
@@ -103,6 +126,7 @@ class _Context(ContextBase):
         with on_error(lambda message: self.error(message)):
             try:
                 yield self.current_workflow
+                self.process_final_workflow()
                 if self.errors:
                     raise GenerationError(self.errors)
             finally:
@@ -115,7 +139,6 @@ class _Context(ContextBase):
         job = Job()
         self.reset_job(job, id)
         try:
-            yield job
             if self.auto_job_reason:
                 self.error(
                     f"explict job `{id}` cannot be created after already implicitly creating a job, which happened when setting `{self.auto_job_reason}`",
@@ -128,6 +151,7 @@ class _Context(ContextBase):
                 )
             else:
                 self.current_workflow.jobs[id] = job
+            yield job
         finally:
             self.reset_job(previous_job, previous_job_id)
 
@@ -416,7 +440,7 @@ class _Job(ProxyExpr):
         if func is None:
             return lambda func: self(func, id=id)
         id = id or func.__name__
-        with _ctx.build_job(id) as j:
+        with _ctx.build_job(id):
             func()
             return getattr(Contexts.needs, id)
 
@@ -713,6 +737,8 @@ class _StepUpdater(ProxyExpr):
         ret = self._ensure_step()
         if ret._step.run:
             _ctx.error("cannot turn a `run` step into a `use` one")
+        else:
+            ret._step.run = None
         return ret
 
     def id(self, id: str) -> typing.Self:
@@ -872,11 +898,12 @@ def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typin
                         _dump_job_outputs(id, j)
             case _:
                 unsupported()
-    kwargs = {Element._key(k): a for k, a in kwargs.items()}
     match instance:
         case Workflow():
+            kwargs = {Element._key(k): Output(value=a) for k, a in kwargs.items()}
             on.workflow_call._outputs(**kwargs)
         case Job():
+            kwargs = {Element._key(k): a for k, a in kwargs.items()}
             _JobUpdaters.outputs(**kwargs)
 
 

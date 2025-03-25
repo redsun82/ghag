@@ -23,11 +23,11 @@ class _Call:
     position: dis.Positions
 
     @classmethod
-    def get(cls):
+    def get(cls, name=None):
         frame = inspect.getframeinfo(inspect.currentframe().f_back)
         call_frame = inspect.getframeinfo(inspect.currentframe().f_back.f_back)
         return cls(
-            frame.function,
+            name or frame.function,
             pathlib.Path(call_frame.filename),
             call_frame.positions,
         )
@@ -67,49 +67,69 @@ def expect(expected: str | None = None):
     return decorator
 
 
-def expect_errors(func):
+@pytest.fixture
+def error(request):
     expected_errors = []
-    this_call = _Call.get()
 
-    def error(expected: str | None = None):
-        expected_errors.append((_Call.get(), expected))
+    class Wrapper:
+        id = None
 
-    def wrapper(request: pytest.FixtureRequest):
-        wf = workflow(lambda: func(error), id=func.__name__)
-        with pytest.raises(GenerationError) as e:
-            generate_workflow(wf, pathlib.Path(request.node.path.parent))
-        actual = {}
-        for err in e.value.errors:
-            assert (
-                pathlib.Path(err.filename) == this_call.file
-            ), f"unexpected filename: {err}"
-            assert err.workflow_id == func.__name__, f"unexpected workflow_id: {err}"
-            assert (
-                err.lineno not in actual
-            ), f"multiple errors on the same line, that's not yet supported:\n* {actual[err.lineno]}\n* {err.message}"
-            actual[err.lineno] = err.message
-        if request.config.getoption("--learn"):
-            for call, expected in expected_errors:
-                request.config.stash[_learn].append((call, None))
-            for lineno, message in actual.items():
-                request.config.stash[_learn].append(
-                    (
-                        _Call("error", this_call.file, dis.Positions(lineno)),
-                        message,
-                    )
+        def __call__(self, expected=None):
+            expected_errors.append((_Call.get("error"), expected))
+
+        def __enter__(self):
+            self.ctx_manager = pytest.raises(GenerationError)
+            self.err = self.ctx_manager.__enter__()
+            return self.err
+
+        def __exit__(self, *args):
+            ret = self.ctx_manager.__exit__(*args)
+            self.actual = self.err.value
+            return ret
+
+    e = Wrapper()
+    yield e
+
+    assert e.actual, "error.actual was not updated"
+    this_file = request.node.path
+    actual = {}
+    for err in e.actual.errors:
+        assert pathlib.Path(err.filename) == this_file, f"unexpected filename: {err}"
+        assert e.id == err.workflow_id, f"unexpected workflow id: {err.workflow_id}"
+        assert (
+            err.lineno not in actual
+        ), f"multiple errors on the same line, that's not yet supported:\n* {actual[err.lineno]}\n* {err.message}"
+        actual[err.lineno] = err.message
+    if request.config.getoption("--learn"):
+        for call, expected in expected_errors:
+            request.config.stash[_learn].append((call, None))
+        for lineno, message in actual.items():
+            request.config.stash[_learn].append(
+                (
+                    _Call("error", this_file, dis.Positions(lineno)),
+                    message,
                 )
-        else:
-            expected = {}
-            for call, e in expected_errors:
-                if e is None:
-                    actual_error = actual.pop(call.position.end_lineno + 1, None)
-                    assert (
-                        actual_error
-                    ), f"missing error at line {call.position.end_lineno + 1}"
-                    request.config.stash[_learn].append((call, actual_error))
-                else:
-                    expected[call.position.end_lineno + 1] = e
-            assert actual == expected, f"errors do not match"
+            )
+    else:
+        expected = {}
+        for call, e in expected_errors:
+            if e is None:
+                actual_error = actual.pop(call.position.end_lineno + 1, None)
+                assert (
+                    actual_error
+                ), f"missing error at line {call.position.end_lineno + 1}"
+                request.config.stash[_learn].append((call, actual_error))
+            else:
+                expected[call.position.end_lineno + 1] = e
+        assert actual == expected, f"errors do not match"
+
+
+def expect_errors(func):
+    def wrapper(error):
+        error.id = func.__name__
+        wf = workflow(lambda: func(error), id=func.__name__)
+        with error:
+            _ = wf.worfklow
 
     return wrapper
 
