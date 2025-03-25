@@ -383,13 +383,17 @@ class WorkflowInfo:
     errors: list[Error]
     file: pathlib.Path
 
-    def instantiate(self) -> Workflow:
-        with _ctx.build_workflow(self.id) as wf:
-            for e in self.errors:
-                e.workflow_id = e.workflow_id or current_workflow_id()
-            _ctx.errors += self.errors
-            self.spec()
-            return wf
+    _workflow: Workflow | None = None
+
+    @property
+    def worfklow(self) -> Workflow:
+        if self._workflow is None:
+            with _ctx.build_workflow(self.id) as self._workflow:
+                for e in self.errors:
+                    e.workflow_id = e.workflow_id or current_workflow_id()
+                _ctx.errors += self.errors
+                self.spec()
+        return self._workflow
 
 
 def workflow(

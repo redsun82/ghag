@@ -28,7 +28,7 @@ def generate_workflow(
     input = f"{w.file.name}::{w.spec.__name__}"
     output = (dir / w.id).with_suffix(".yml")
     tmp = output.with_suffix(".yml.tmp")
-    w = w.instantiate().asdict()
+    w = w.worfklow.asdict()
     w = CommentedMap(w)
     w.yaml_set_start_comment(f"generated from {input}")
     with open(tmp, "w") as out:
