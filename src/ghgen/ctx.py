@@ -475,6 +475,7 @@ service = _JobUpdaters.service
 def _allocate_id(
     prefix: str, is_free: typing.Callable[[str], bool], *, start_from_one: bool = False
 ) -> str:
+    prefix = Element._key(prefix)  # replace underscores with dashes
     if not start_from_one and is_free(prefix):
         return prefix
     return next(

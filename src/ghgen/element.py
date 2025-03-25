@@ -12,7 +12,7 @@ class Element:
     def _key(cls, key: str) -> str:
         key = key.rstrip("_")
         if not cls._preserve_underscores:
-            key = key.replace("_", "-")
+            key = key.replace("_", "-").replace("--", "_")
         return key
 
     def asdict(self) -> typing.Any:

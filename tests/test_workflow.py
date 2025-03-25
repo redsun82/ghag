@@ -408,7 +408,7 @@ on:
         - a
         - b
         - c
-      an_env:
+      an-env:
         required: false
         type: environment
 jobs:
@@ -419,7 +419,7 @@ jobs:
         echo ${{ inputs.foo }}
         echo ${{ inputs.bar }}
         echo ${{ inputs.baz }}
-        echo ${{ inputs.an_env }}
+        echo ${{ inputs.an-env }}
 """
 )
 def test_workflow_dispatch_inputs():
@@ -542,6 +542,37 @@ def test_inputs():
 
 @expect(
     """
+# generated from test_workflow.py::test_input_underscores
+on:
+  workflow_dispatch:
+    inputs:
+      my-input:
+        required: false
+        type: string
+      my_other_input:
+        required: false
+        type: string
+      yet_another_input:
+        required: false
+        type: string
+jobs:
+  test_input_underscores:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo ${{ inputs.my-input }} ${{ inputs.my_other_input }} ${{ inputs.yet_another_input
+        }}
+"""
+)
+def test_input_underscores():
+    on.workflow_dispatch()
+    my_input = input()
+    my_other_input = input().id("my_other_input")
+    yet__another__input = input()
+    run(f"echo {my_input} {my_other_input} {yet__another__input}")
+
+
+@expect(
+    """
 # generated from test_workflow.py::test_id
 on: {}
 jobs:
@@ -590,6 +621,31 @@ def test_id():
 
     code = "\n".join(str(step(f"anon{i}").outcome) for i in range(3))
     step("use anonymous").run(code)
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_step_id_underscores
+on: {}
+jobs:
+  test_step_id_underscores:
+    runs-on: ubuntu-latest
+    steps:
+    - id: my-step
+      run: echo one
+    - id: my_other_step
+      run: echo two
+    - id: yet_another_step
+      run: echo three
+    - if: steps.my-step && steps.my_other_step && steps.yet_another_step
+      run: ''
+"""
+)
+def test_step_id_underscores():
+    my_step = run("echo one")
+    my_other_step = run("echo two").id("my_other_step")
+    yet__another__step = run("echo three")
+    run("").if_(my_step & my_other_step & yet__another__step)
 
 
 @expect(
