@@ -796,10 +796,14 @@ def test_explicit_job_outputs():
 @expect(
     """
 # generated from test_workflow.py::test_implicit_workflow_outputs
-on: {}
-outputs:
-  one: ${{ jobs.j1.outputs.one }}
-  two: ${{ jobs.j1.outputs.two }}
+on:
+  workflow_call:
+    outputs:
+      two:
+        description: this is two
+        value: ${{ jobs.j1.outputs.two }}
+      one:
+        value: ${{ jobs.j1.outputs.one }}
 jobs:
   j1:
     outputs:
@@ -811,6 +815,8 @@ jobs:
 """
 )
 def test_implicit_workflow_outputs():
+    on.workflow_call.output_descriptions(two="this is two")
+
     @job
     def j1():
         outputs(one=1, two=2)
@@ -825,11 +831,15 @@ def test_implicit_workflow_outputs():
 @expect(
     """
 # generated from test_workflow.py::test_jolly_workflow_outputs
-on: {}
-outputs:
-  one: ${{ jobs.j1.outputs.one }}
-  two: ${{ jobs.j1.outputs.two }}
-  three: ${{ jobs.j2.outputs.three }}
+on:
+  workflow_call:
+    outputs:
+      one:
+        value: ${{ jobs.j1.outputs.one }}
+      two:
+        value: ${{ jobs.j1.outputs.two }}
+      three:
+        value: ${{ jobs.j2.outputs.three }}
 jobs:
   j1:
     outputs:
@@ -841,6 +851,8 @@ jobs:
 """
 )
 def test_jolly_workflow_outputs():
+    on.workflow_call()
+
     @job
     def j1():
         outputs(one=1, two=2)

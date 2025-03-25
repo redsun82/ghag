@@ -158,7 +158,7 @@ class _Updater[**P, F]:
     owner: type[_Updaters] | typing.Self | None = None
 
     def __set_name__(self, owner: type[_Updaters], name: str):
-        self.field = name
+        self.field = name.lstrip("_")
         self.owner = owner
 
     def _get_parent(self) -> typing.Any:
@@ -254,6 +254,12 @@ class _WorkflowUpdaters(_Updaters):
 
         class WorkflowCallUpdater(WorkflowDispatchUpdater):
             secret = _MapUpdater(Secret)
+            _outputs = _Updater(dict)
+
+            def output_descriptions(self, *args, **kwargs) -> typing.Self:
+                kwargs = {Element._key(k): v for k, v in kwargs.items()}
+                outputs = {k: Output(v) for k, v in dict(*args, **kwargs).items()}
+                return self._outputs(outputs)
 
         workflow_call = WorkflowCallUpdater(WorkflowCall)
 
@@ -272,7 +278,6 @@ class _WorkflowOrJobUpdaters(_Updaters):
 
     name = _Updater(str)
     env = _Updater(dict)
-    outputs = _Updater(dict)
 
 
 class _JobUpdaters(_Updaters):
@@ -310,6 +315,7 @@ class _JobUpdaters(_Updaters):
     service = _MapUpdater(Container)
     uses = _Updater(str)
     with_ = _Updater(dict)
+    outputs = _Updater(dict)
 
 
 _ctx = _Context()
@@ -333,7 +339,10 @@ def _merge[T](field: str, lhs: T | None, rhs: T | None, recursed=False) -> T | N
             case _, None:
                 return lhs
             case dict(), dict():
-                return lhs | rhs
+                return {
+                    k: _merge(k, lhs.get(k), rhs.get(k), recursed=True)
+                    for k in lhs | rhs
+                }
             case list(), list():
                 return lhs + rhs
             case list(), str() | bytes():
@@ -806,7 +815,7 @@ def _dump_step_outputs(s: Step):
     id = _ensure_step_id(s)
     if s.outputs:
         outputs = getattr(steps, id).outputs
-        _WorkflowOrJobUpdaters.outputs((o, getattr(outputs, o)) for o in s.outputs)
+        _JobUpdaters.outputs((o, getattr(outputs, o)) for o in s.outputs)
     else:
         _ctx.error(
             f"step `{id}` passed to `outputs`, but no outputs were declared on it. Use `returns()` to do so",
@@ -816,7 +825,9 @@ def _dump_step_outputs(s: Step):
 def _dump_job_outputs(id: str, j: Job):
     if j.outputs:
         outputs = getattr(Contexts.jobs, id).outputs
-        _WorkflowOrJobUpdaters.outputs((o, getattr(outputs, o)) for o in j.outputs)
+        on.workflow_call._outputs(
+            (o, Output(value=getattr(outputs, o))) for o in j.outputs
+        )
     else:
         _ctx.error(
             f"job `{id}` passed to `outputs`, but no outputs were declared on it. Use `outputs()` to do so",
@@ -825,6 +836,11 @@ def _dump_job_outputs(id: str, j: Job):
 
 def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typing.Any):
     instance = _WorkflowOrJobUpdaters.instance("outputs")
+    if isinstance(instance, Workflow) and not instance.on.workflow_call:
+        _ctx.error(
+            "`outputs` in a workflow can only be used if `on.workflow_call` is set"
+        )
+        return
     unsupported = lambda: _ctx.error(
         f'unsupported unnamed output `{instantiate(arg)}`, must be `"*"`, a context field or a step'
     )
@@ -832,9 +848,10 @@ def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typin
         match instance, arg:
             case Workflow(), RefExpr(_segments=("needs", id)) if id in instance.jobs:
                 _dump_job_outputs(id, instance.jobs[id])
-            case _, RefExpr():
-                key = arg._segments[-1]
-                _WorkflowOrJobUpdaters.outputs(((key, arg),))
+            case Workflow(), RefExpr(_segments=(*head, tail)):
+                on.workflow_call._outputs(((tail, Output(value=arg)),))
+            case Job(), RefExpr(_segments=(*head, tail)):
+                _JobUpdaters.outputs(((tail, arg),))
             case Job(), _StepUpdater():
                 _dump_step_outputs(arg._step)
             case Workflow(), _StepUpdater():
@@ -851,7 +868,12 @@ def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typin
                         _dump_job_outputs(id, j)
             case _:
                 unsupported()
-    _WorkflowOrJobUpdaters.outputs(kwargs)
+    kwargs = {Element._key(k): a for k, a in kwargs.items()}
+    match instance:
+        case Workflow():
+            on.workflow_call._outputs(**kwargs)
+        case Job():
+            _JobUpdaters.outputs(**kwargs)
 
 
 always = function("always", 0)

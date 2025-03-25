@@ -131,6 +131,8 @@ def test_unexpected_step_outputs(error):
 
 @expect_errors
 def test_wrong_outputs(error):
+    on.workflow_call()
+
     @job
     def j1():
         x = step("x")
@@ -168,6 +170,13 @@ def test_wrong_outputs(error):
         "job `j3` passed to `outputs`, but no outputs were declared on it. Use `outputs()` to do so"
     )
     outputs(j3)
+
+
+@expect_errors
+def test_outputs_on_non_call(error):
+    on.workflow_dispatch()
+    error("`outputs` in a workflow can only be used if `on.workflow_call` is set")
+    outputs(x=42)
 
 
 @expect_errors

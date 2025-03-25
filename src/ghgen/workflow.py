@@ -70,6 +70,12 @@ class Secret(Element):
     required: bool = False
 
 
+class Output(Element):
+    description: str
+    _: dataclasses.KW_ONLY
+    value: Value
+
+
 class Trigger(Element):
     types: list[str]
 
@@ -173,6 +179,7 @@ class WorkflowDispatch(Element):
 class WorkflowCall(Element):
     inputs: list[Input]
     secrets: dict[str, Secret]
+    outputs: dict[str, Output]
 
     def asdict(self) -> typing.Any:
         return _dictionarize_inputs(self.inputs, super().asdict())
@@ -352,7 +359,6 @@ class Job(Element):
 class Workflow(Element):
     name: str
     on: On = field(default_factory=On)
-    outputs: dict[str, Value]
     env: dict[str, Value]
     jobs: dict[str, Job] = field(default_factory=dict)
 

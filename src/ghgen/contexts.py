@@ -199,8 +199,8 @@ class ContextBase(threading.local, RuleSet):
     @rule(Contexts.jobs)
     def v(self, *, target: typing.Any = None, field: str | None = None):
         return self.check(
-            isinstance(target, Workflow) and field == "outputs",
-            "`jobs` is only allowed while declaring worfklow outputs",
+            isinstance(target, WorkflowCall) and field == "outputs",
+            "`jobs` is only allowed while declaring worfklow outputs in a workflow call trigger",
         )
 
     @rule(Contexts.jobs._)
