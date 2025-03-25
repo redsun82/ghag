@@ -39,7 +39,7 @@ class Contexts:
 
     job: Job
 
-    class Jobs:
+    class Jobs(RefExpr):
         class Job:
             outputs: FlatMap
             result: RefExpr
@@ -49,7 +49,7 @@ class Contexts:
     jobs: Jobs
     needs: Jobs
 
-    class Runner:
+    class Runner(RefExpr):
         name: RefExpr
         os: RefExpr
         arch: RefExpr
@@ -75,10 +75,13 @@ class Contexts:
 
 steps = Contexts.steps
 matrix = Contexts.matrix
-job = Contexts.job
 runner = Contexts.runner
 
-# we don't expose needs and jobs as we handle them without explicit references
+# we don't expose the following
+# needs: handled through job handles returned by @job
+# jobs: handled via `outputs` function
+# strategy: replaced by a ProxyExpr to also be the `strategy` field setter
+# job: replaced by a ProxyExpr to also be the `@job` decorator
 
 
 @dataclasses.dataclass
@@ -117,7 +120,7 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(steps._)
-    def v(self, id: str, *, target: typing.Any = None, field: str | None = None):
+    def v(self, id: str, *, target: typing.Any = None, **kwargs):
         return self.check(
             self._knows_step_id(target, id),
             f"step `{id}` not defined yet in job `{self.current_job_id}`",
@@ -128,9 +131,7 @@ class ContextBase(threading.local, RuleSet):
         self,
         id: str,
         output: str,
-        *,
-        target: typing.Any = None,
-        field: str | None = None,
+        **kwargs,
     ):
         step = next(s for s in self.current_job.steps if s.id == id)
         return self.check(
@@ -153,7 +154,7 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(matrix._)
-    def v(self, id, *, target: typing.Any = None, field: str | None = None):
+    def v(self, id, **kwargs):
         m = self.current_job.strategy.matrix
         # don't try to be smart if using something like an Expr
         return not isinstance(m, Matrix) or self.check(
@@ -162,26 +163,26 @@ class ContextBase(threading.local, RuleSet):
             f"`{id}` was not declared in the `matrix` for this job",
         )
 
-    @rule(job)
-    def v(self, *, target: typing.Any = None, field: str | None = None):
+    @rule(Contexts.job)
+    def v(self, **kwargs):
         return self.check(self.current_job, "`job` can only be used in a job")
 
-    @rule(job.container)
-    def v(self, *, target: typing.Any = None, field: str | None = None):
+    @rule(Contexts.job.container)
+    def v(self, **kwargs):
         return self.check(
             self.current_job.container,
             "`job.container` can only be used in a containerized job",
         )
 
-    @rule(job.services)
-    def v(self, *, target: typing.Any = None, field: str | None = None):
+    @rule(Contexts.job.services)
+    def v(self, **kwargs):
         return self.check(
             self.current_job.services,
             "`job.services` can only be used in a job with services",
         )
 
-    @rule(job.services._)
-    def v(self, id, *, target: typing.Any = None, field: str | None = None):
+    @rule(Contexts.job.services._)
+    def v(self, id, **kwargs):
         return self.check(
             id in self.current_job.services,
             f"no `{id}` service defined in `job.services`",
@@ -195,7 +196,7 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(Contexts.jobs._)
-    def v(self, id, *, target: typing.Any = None, field: str | None = None):
+    def v(self, id, **kwargs):
         return self.check(
             id in self.current_workflow.jobs,
             f"no `{id}` job declared yet in this workflow",
@@ -203,7 +204,7 @@ class ContextBase(threading.local, RuleSet):
 
     @rule(Contexts.jobs._.outputs._)
     @rule(Contexts.needs._.outputs._)
-    def v(self, id, out, *, target: typing.Any = None, field: str | None = None):
+    def v(self, id, out, **kwargs):
         job = self.current_workflow.jobs[id]
         return self.check(
             job.outputs and out in job.outputs,
@@ -211,7 +212,7 @@ class ContextBase(threading.local, RuleSet):
         )
 
     @rule(Contexts.needs)
-    def v(self, *, target: typing.Any = None, field: str | None = None):
+    def v(self, **kwargs):
         if not self.check(
             self.current_job, "job handle used as an expression outside a job"
         ):
@@ -222,7 +223,7 @@ class ContextBase(threading.local, RuleSet):
         return True
 
     @rule(Contexts.needs._)
-    def v(self, id, *, target: typing.Any = None, field: str | None = None):
+    def v(self, id, **kwargs):
         if not self.check(
             id in self.current_workflow.jobs,
             f"no `{id}` job declared yet in this workflow",
