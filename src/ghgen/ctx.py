@@ -279,10 +279,31 @@ class _WorkflowUpdaters(_Updaters):
             secret = _MapUpdater(Secret)
             _outputs = _Updater(dict)
 
-            def outputs(self, *args, **kwargs) -> typing.Self:
-                kwargs = {Element._key(k): v for k, v in kwargs.items()}
-                outputs = {k: Output(v) for k, v in dict(*args, **kwargs).items()}
-                return self._outputs(outputs)
+            def output(
+                self,
+                value: Value | None = None,
+                description: str | None = None,
+                *,
+                id: str | None = None,
+            ):
+                description = description and textwrap.dedent(description.strip("\n"))
+                match value, id:
+                    case RefExpr(_segments=("needs", *rest)), _:
+                        return self.output(
+                            RefExpr("jobs", *rest), description=description, id=id
+                        )
+                    case (_, str() as id) | (
+                        RefExpr(_segments=(*_, id)),
+                        None,
+                    ):
+                        return self._outputs(
+                            ((id, Output(value=value, description=description)),)
+                        )
+                    case _:
+                        _ctx.error(
+                            f"unsupported unnamed output `{instantiate(value)}`, it either must be a context field or `id` must be provided"
+                        )
+                        return self
 
         workflow_call = WorkflowCallUpdater(WorkflowCall)
 
@@ -863,70 +884,28 @@ def _dump_job_outputs(id: str, j: Job):
         )
 
 
-def output(value: Value, description: str | None = None, *, id: str | None = None):
-    instance = _WorkflowOrJobUpdaters.instance("outputs")
-    if isinstance(instance, Workflow) and not instance.on.workflow_call:
-        _ctx.error(
-            "`output` in a workflow can only be used if `on.workflow_call` is set"
-        )
-        return
-    if isinstance(instance, Job) and description is not None:
-        _ctx.error(f"`description` can only be used in a workflow, not in a job")
-    description = description and textwrap.dedent(description.strip("\n"))
-    match instance, value, id:
-        case Workflow(), RefExpr(_segments=("needs", *rest)), _:
-            output(RefExpr("jobs", *rest), description=description, id=id)
-        case (Job(), _, str() as id) | (Job(), RefExpr(_segments=(*_, id)), None):
-            _JobUpdaters.outputs(((id, value),))
-        case (Workflow(), _, str() as id) | (
-            Workflow(),
-            RefExpr(_segments=(*_, id)),
-            None,
-        ):
-            on.workflow_call._outputs(
-                ((id, Output(value=value, description=description)),)
-            )
-        case _:
-            _ctx.error(
-                f"unsupported unnamed output `{instantiate(value)}`, it either must be a context field or `id` must be provided"
-            )
-
-
 def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typing.Any):
-    instance = _WorkflowOrJobUpdaters.instance("outputs")
-    if isinstance(instance, Workflow) and not instance.on.workflow_call:
-        _ctx.error(
-            "`outputs` in a workflow can only be used if `on.workflow_call` is set"
-        )
-        return
     unsupported = lambda: _ctx.error(
         f'unsupported unnamed output `{instantiate(arg)}`, must be `"*"`, a context field or a step'
     )
     for arg in args:
-        match instance, arg:
-            case Workflow(), RefExpr(_segments=("needs", id)) if id in instance.jobs:
-                _dump_job_outputs(id, instance.jobs[id])
-            case _, RefExpr():
-                output(arg)
-            case Job(), _StepUpdater():
+        match arg:
+            case RefExpr(_segments=(*_, id)):
+                _JobUpdaters.outputs(((id, arg),))
+            case _StepUpdater():
                 _dump_step_outputs(arg._step)
-            case Workflow(), _StepUpdater():
-                _ctx.error(f"a step cannot be returned as a workflow output")
-            case _, Expr():  # this must be done to avoid comparing Expr with "*"
+            case Expr():  # this must be done to avoid comparing Expr with "*"
                 unsupported()
-            case Job(), "*":
+            case "*":
+                instance = _JobUpdaters.instance("outputs")
                 for s in instance.steps:
                     if s.outputs:
                         _dump_step_outputs(s)
-            case Workflow(), "*":
-                for id, j in instance.jobs.items():
-                    if j.outputs:
-                        _dump_job_outputs(id, j)
             case _:
                 unsupported()
-    for k, a in kwargs.items():
-        k = Element._key(k)
-        output(a, id=k)
+    kwargs = {Element._key(k): a for k, a in kwargs.items()}
+    if kwargs:
+        _JobUpdaters.outputs(**kwargs)
 
 
 always = function("always", 0)

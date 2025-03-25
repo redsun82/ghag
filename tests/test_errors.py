@@ -167,19 +167,6 @@ def test_wrong_outputs(error):
         )
         outputs(steps.x & steps.y)
 
-    error(
-        "job `j3` passed to `outputs`, but no outputs were declared on it. Use `outputs()` to do so"
-    )
-    outputs(j3)
-
-
-@expect_errors
-def test_outputs_on_non_call(error):
-    on.workflow_dispatch()
-    error("`outputs` in a workflow can only be used if `on.workflow_call` is set")
-    outputs(x=42)
-    run("")
-
 
 @expect_errors
 def test_undeclared_step_output(error):
@@ -396,8 +383,7 @@ def test_at_least_one_job(error):
 def test_all_outputs_set(error):
     @workflow
     def w():
-        on.workflow_call.outputs(one="this is a", two="this is b", three="this is c")
-        outputs(two="b")
+        on.workflow_call.output(id="one").output("b", id="two").output(id="three")
         step("")
 
     error.id = "w"

@@ -842,51 +842,16 @@ def test_explicit_job_outputs():
 
 @expect(
     """
-# generated from test_workflow.py::test_implicit_workflow_outputs
-on:
-  workflow_call:
-    outputs:
-      two:
-        description: this is two
-        value: ${{ jobs.j1.outputs.two }}
-      one:
-        value: ${{ jobs.j1.outputs.one }}
-jobs:
-  j1:
-    outputs:
-      one: 1
-      two: 2
-  j2:
-    outputs:
-      three: 3
-"""
-)
-def test_implicit_workflow_outputs():
-    on.workflow_call.outputs(two="this is two")
-
-    @job
-    def j1():
-        outputs(one=1, two=2)
-
-    @job
-    def j2():
-        outputs(three=3)
-
-    outputs(j1)
-
-
-@expect(
-    """
 # generated from test_workflow.py::test_jolly_workflow_outputs
 on:
   workflow_call:
     outputs:
       one:
         value: ${{ jobs.j1.outputs.one }}
-      two:
-        value: ${{ jobs.j1.outputs.two }}
       three:
         value: ${{ jobs.j2.outputs.three }}
+      TWO:
+        value: ${{ jobs.j1.outputs.two }}
 jobs:
   j1:
     outputs:
@@ -898,8 +863,6 @@ jobs:
 """
 )
 def test_jolly_workflow_outputs():
-    on.workflow_call()
-
     @job
     def j1():
         outputs(one=1, two=2)
@@ -908,7 +871,9 @@ def test_jolly_workflow_outputs():
     def j2():
         outputs(three=3)
 
-    outputs("*")
+    on.workflow_call.output(j1.outputs.one).output(j2.outputs.three).output(
+        j1.outputs.two, id="TWO"
+    )
 
 
 @expect(
@@ -939,8 +904,6 @@ jobs:
 """
 )
 def test_singled_out_workflow_outputs():
-    on.workflow_call()
-
     @job
     def j1():
         outputs(one=1, two=2)
@@ -949,15 +912,15 @@ def test_singled_out_workflow_outputs():
     def j2():
         outputs(three=3)
 
-    output(
+    on.workflow_call.output(
         j1.outputs.one,
         """
         This is the description of
         output one
         """,
     )
-    output(j2.outputs.three, description="this is three")
-    output(j1.outputs.two, id="TWO", description="this is two")
+    on.workflow_call.output(j2.outputs.three, description="this is three")
+    on.workflow_call.output(j1.outputs.two, id="TWO", description="this is two")
 
 
 @expect(
