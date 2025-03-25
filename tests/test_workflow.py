@@ -358,13 +358,14 @@ jobs:
     - name: My action
       uses: ./my_action
       with:
-        arg1: foo
-        arg2: bar
+        arg-1: foo
+        arg_2: bar
+        arg_3: baz
     - name: My other action
       uses: ./my_other_action
       with:
-        arg1: foo
-        arg2: bar
+        arg-1: foo
+        arg_2: bar
     - continue-on-error: true
       run: one
     - continue-on-error: value
@@ -380,8 +381,8 @@ def test_steps():
         run("echo $WHO").env(WHO="world")
         step("catastrophe").run("echo oh no").if_("failure()")
         step.uses("actions/checkout@v4").with_(ref="dev")
-        use("./my_action").with_(arg1="foo", arg2="bar")
-        use("./my_other_action", arg1="foo", arg2="bar")
+        use("./my_action").with_(arg_1="foo", arg__2="bar").with_((("arg_3", "baz"),))
+        use("./my_other_action", arg_1="foo", arg__2="bar")
         run("one").continue_on_error()
         run("two").continue_on_error("value")
 

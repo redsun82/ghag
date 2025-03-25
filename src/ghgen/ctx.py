@@ -705,7 +705,7 @@ class _StepUpdater(ProxyExpr):
             except Exception:
                 pass
         if kwargs:
-            ret.with_(kwargs)
+            ret.with_(**kwargs)
         return ret
 
     def continue_on_error(self, value: Value[bool] = True) -> typing.Self:
@@ -716,7 +716,7 @@ class _StepUpdater(ProxyExpr):
 
     def with_(self, *args, **kwargs) -> typing.Self:
         ret = self._ensure_use_step()
-        value = dict(*args, **kwargs)
+        value = dict(*args, **{Element._key(k): a for k, a in kwargs.items()})
         _ctx.validate(value, target=ret._step, field="with_")
         ret._step.with_ = (ret._step.with_ or {}) | value
         return ret
