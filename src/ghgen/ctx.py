@@ -107,7 +107,6 @@ class _Context(ContextBase):
             f"workflow `{id}` must have at least one job",
         )
         if w.on.workflow_call and w.on.workflow_call.outputs:
-            print("PROUT", w.on.workflow_call.outputs)
             unset_outputs = [
                 o
                 for o, info in w.on.workflow_call.outputs.items()
