@@ -815,7 +815,7 @@ jobs:
 """
 )
 def test_implicit_workflow_outputs():
-    on.workflow_call.output_descriptions(two="this is two")
+    on.workflow_call.outputs(two="this is two")
 
     @job
     def j1():

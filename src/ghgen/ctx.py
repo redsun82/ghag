@@ -256,7 +256,7 @@ class _WorkflowUpdaters(_Updaters):
             secret = _MapUpdater(Secret)
             _outputs = _Updater(dict)
 
-            def output_descriptions(self, *args, **kwargs) -> typing.Self:
+            def outputs(self, *args, **kwargs) -> typing.Self:
                 kwargs = {Element._key(k): v for k, v in kwargs.items()}
                 outputs = {k: Output(v) for k, v in dict(*args, **kwargs).items()}
                 return self._outputs(outputs)
