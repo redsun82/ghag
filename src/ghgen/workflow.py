@@ -256,13 +256,13 @@ class On(Element):
 
 class Step(Element):
     id: str
-    name: Value[str]
-    if_: Value[bool]
-    continue_on_error: Value[bool]
-    run: Value[str]
-    env: dict[str, Value[str]]
+    name: Value
+    if_: Value
+    continue_on_error: Value
+    run: Value
+    env: dict[str, Value]
     uses: str
-    with_: dict[str, Value[str | bool | int | float]]
+    with_: dict[str, Value]
 
     # extensions
     outputs: list[str]
@@ -310,23 +310,23 @@ class Matrix(Element):
 
 class Strategy(Element):
     matrix: Matrix
-    fail_fast: Value[bool]
-    max_parallel: Value[int]
+    fail_fast: Value
+    max_parallel: Value
 
 
 class Credentials(Element):
-    username: Value[str]
-    password: Value[str]
+    username: Value
+    password: Value
 
 
 class Container(Element):
-    image: Value[str]
+    image: Value
     _: dataclasses.KW_ONLY
     credentials: Credentials
-    env: dict[str, Value[str]]
-    ports: list[Value[int]]
-    volumes: list[Value[str]]
-    options: list[Value[str]]
+    env: dict[str, Value]
+    ports: list[Value]
+    volumes: list[Value]
+    options: list[Value]
 
 
 class Job(Element):
@@ -335,9 +335,9 @@ class Job(Element):
     runs_on: str = "ubuntu-latest"
     container: Container
     services: dict[str, Container]
-    outputs: dict[str, Value[str]]
+    outputs: dict[str, Value]
     strategy: Strategy
-    env: dict[str, Value[str]]
+    env: dict[str, Value]
     steps: list[Step]
 
     def asdict(self) -> typing.Any:

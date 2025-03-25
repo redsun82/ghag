@@ -443,7 +443,7 @@ class _StrategyUpdater(ProxyExpr):
         return Contexts.strategy
 
     class FailFastUpdater(ProxyExpr):
-        def __call__(self, value: Value[bool] = True):
+        def __call__(self, value: Value = True):
             return _JobUpdaters.strategy.fail_fast(value)
 
         def _get_expr(self) -> Expr:
@@ -452,7 +452,7 @@ class _StrategyUpdater(ProxyExpr):
     fail_fast = FailFastUpdater()
 
     class MaxParallelUpdater(ProxyExpr):
-        def __call__(self, value: Value[int] = True):
+        def __call__(self, value: Value = True):
             return _JobUpdaters.strategy.max_parallel(value)
 
         def _get_expr(self) -> Expr:
@@ -625,7 +625,7 @@ class _StepUpdater(ProxyExpr):
         super().__init__()
         self._step = step
 
-    def __call__(self, name: Value[str]) -> typing.Self:
+    def __call__(self, name: Value) -> typing.Self:
         return self.name(name)
 
     def _get_expr(self) -> Expr:
@@ -665,13 +665,13 @@ class _StepUpdater(ProxyExpr):
             ret._step.id = id
         return ret
 
-    def name(self, name: Value[str]) -> typing.Self:
+    def name(self, name: Value) -> typing.Self:
         ret = self._ensure_step()
         _ctx.validate(name, target=ret._step, field="name")
         ret._step.name = name
         return ret
 
-    def if_(self, condition: Value[bool]) -> typing.Self:
+    def if_(self, condition: Value) -> typing.Self:
         ret = self._ensure_step()
         _ctx.validate(condition, target=ret._step, field="if_")
         ret._step.if_ = condition
@@ -684,7 +684,7 @@ class _StepUpdater(ProxyExpr):
         ret._step.env = (ret._step.env or {}) | value
         return ret
 
-    def run(self, code: Value[str]):
+    def run(self, code: Value):
         ret = self._ensure_run_step()
         _ctx.validate(code, target=ret._step, field="run")
         if isinstance(code, str):
@@ -692,7 +692,7 @@ class _StepUpdater(ProxyExpr):
         ret._step.run = code
         return ret
 
-    def uses(self, source: Value[str], **kwargs):
+    def uses(self, source: Value, **kwargs):
         ret = self._ensure_use_step()
         _ctx.validate(source, target=ret._step, field="uses")
         ret._step.uses = source
@@ -708,7 +708,7 @@ class _StepUpdater(ProxyExpr):
             ret.with_(**kwargs)
         return ret
 
-    def continue_on_error(self, value: Value[bool] = True) -> typing.Self:
+    def continue_on_error(self, value: Value = True) -> typing.Self:
         ret = self._ensure_step()
         _ctx.validate(value, target=ret._step, field="continue_on_error")
         ret._step.continue_on_error = value
@@ -721,7 +721,7 @@ class _StepUpdater(ProxyExpr):
         ret._step.with_ = (ret._step.with_ or {}) | value
         return ret
 
-    def returns(self, *args: str, **kwargs: Value[str]) -> typing.Self:
+    def returns(self, *args: str, **kwargs: Value) -> typing.Self:
         ret = self._ensure_run_step()
         outs = list(args)
         outs.extend(a for a in kwargs if a not in args)
