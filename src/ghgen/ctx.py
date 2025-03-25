@@ -415,7 +415,17 @@ job = _Job()
 name = _WorkflowOrJobUpdaters.name
 on = _WorkflowUpdaters.on
 env = _WorkflowOrJobUpdaters.env
-runs_on = _JobUpdaters.runs_on
+
+
+def runs_on(runner: Value):
+    j = _ctx.current_job
+    j_id = _ctx.current_job_id
+    if j and j.uses:
+        _ctx.error(
+            f"job `{j_id}` cannot set `runs-on` as it has already specified `uses` (with `call`)"
+        )
+    else:
+        _JobUpdaters.runs_on(runner)
 
 
 def needs(*args: RefExpr) -> list[str]:
@@ -437,20 +447,32 @@ def needs(*args: RefExpr) -> list[str]:
     return prereqs
 
 
-def uses(target: str):
-    if _ctx.current_job and _ctx.current_job.steps:
-        _ctx.error(f"job `{_ctx.current_job_id}` specifies both `uses` and `steps`")
-    _JobUpdaters.uses(target)
-
-
-# provide an alias for less confusion with `use`
-call = uses
+# use `call` instead of `uses`, to avoid confusion with `use`
+def call(target: str, **kwargs):
+    j = _ctx.current_job
+    j_id = _ctx.current_job_id
+    if j and j.uses:
+        _ctx.error(f"job `{j_id}` has already specified `uses` (with `call`)")
+    elif j and j.steps:
+        _ctx.error(f"job `{j_id}` specifies both `uses` (with `call`) and steps")
+    elif j and j.runs_on:
+        _ctx.error(f"job `{j_id}` specifies both `uses` (with `call`) and `runs-on`")
+    else:
+        _JobUpdaters.uses(target)
+        if kwargs:
+            with_(**kwargs)
 
 
 def with_(*args, **kwargs):
-    if _ctx.current_job and _ctx.current_job.steps:
-        _ctx.error(f"job `{_ctx.current_job_id}` specifies both `with_` and `steps`")
-    _JobUpdaters.with_(*args, **kwargs)
+    j = _ctx.current_job
+    j_id = _ctx.current_job_id
+    if j and not j.uses:
+        _ctx.error(
+            f"job `{j_id}` must specify `uses` (via `call`) in order to specify `with`"
+        )
+    else:
+        kwargs = {Element._key(k): a for k, a in kwargs.items()}
+        _JobUpdaters.with_(*args, **kwargs)
 
 
 class _StrategyUpdater(ProxyExpr):
@@ -655,11 +677,18 @@ class _StepUpdater(ProxyExpr):
     def _ensure_step(self) -> typing.Self:
         if self._step is not None:
             return self
-        _JobUpdaters.steps([Step()])
-        step = (
-            _ctx.current_job and _ctx.current_job.steps and _ctx.current_job.steps[-1]
-        )
-        return _StepUpdater(step)
+        step = Step()
+        ret = _StepUpdater(step)
+        _JobUpdaters.steps([step])
+        j = _ctx.current_job
+        if j and j.uses and len(j.steps) == 1:
+            _ctx.error(
+                f"job `{_ctx.current_job_id}` adds steps when `uses` is already set"
+            )
+        if j and j.runs_on is None:
+            # only set the runner to default when we use steps
+            j.runs_on = default_runner
+        return ret
 
     def _ensure_run_step(self) -> typing.Self:
         ret = self._ensure_step()

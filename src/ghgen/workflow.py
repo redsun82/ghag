@@ -329,10 +329,13 @@ class Container(Element):
     options: list[Value]
 
 
+default_runner = "ubuntu-latest"
+
+
 class Job(Element):
     name: str
     needs: list[str]
-    runs_on: str = "ubuntu-latest"
+    runs_on: str
     container: Container
     services: dict[str, Container]
     outputs: dict[str, Value]

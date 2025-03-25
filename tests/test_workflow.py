@@ -77,7 +77,6 @@ on:
 jobs:
   my_job:
     name: My job
-    runs-on: ubuntu-latest
     env:
       FOO: bar
 """
@@ -99,12 +98,10 @@ on:
 jobs:
   job1:
     name: First job
-    runs-on: ubuntu-latest
     env:
       FOO: bar
   job2:
     name: Second job
-    runs-on: ubuntu-latest
     env:
       BAZ: bazz
 """
@@ -805,12 +802,10 @@ outputs:
   two: ${{ jobs.j1.outputs.two }}
 jobs:
   j1:
-    runs-on: ubuntu-latest
     outputs:
       one: 1
       two: 2
   j2:
-    runs-on: ubuntu-latest
     outputs:
       three: 3
 """
@@ -837,12 +832,10 @@ outputs:
   three: ${{ jobs.j2.outputs.three }}
 jobs:
   j1:
-    runs-on: ubuntu-latest
     outputs:
       one: 1
       two: 2
   j2:
-    runs-on: ubuntu-latest
     outputs:
       three: 3
 """
@@ -864,8 +857,7 @@ def test_jolly_workflow_outputs():
 # generated from test_workflow.py::test_needs
 on: {}
 jobs:
-  j1:
-    runs-on: ubuntu-latest
+  j1: {}
   j2:
     needs: [j1]
     runs-on: ubuntu-latest
@@ -882,7 +874,6 @@ jobs:
     - run: ''
   j4:
     needs: [j1, j3]
-    runs-on: ubuntu-latest
 """
 )
 def test_needs():
@@ -942,7 +933,6 @@ jobs:
     steps:
     - run: echo ${{ job.container.id }}
   j2:
-    runs-on: ubuntu-latest
     container:
       image: ghcr.io/owner/image
       credentials:
@@ -1019,3 +1009,33 @@ def test_strategy_as_context():
         echo {strategy.job_index}
         echo {strategy.job_total}
     """)  # fmt: skip
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_call
+on: {}
+jobs:
+  j1:
+    uses: foo
+    with:
+      arg-1: foo
+      arg_2: bar
+      arg_3: baz
+  j2:
+    uses: foo
+    with:
+      arg-1: foo
+      arg_2: bar
+"""
+)
+def test_call():
+    @job
+    def j1():
+        call("foo")
+        with_(arg_1="foo", arg__2="bar")
+        with_((("arg_3", "baz"),))
+
+    @job
+    def j2():
+        call("foo", arg_1="foo", arg__2="bar")

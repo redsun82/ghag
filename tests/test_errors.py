@@ -317,3 +317,26 @@ def test_wrong_strategy_context_use(error):
         strategy.max_parallel(strategy & 2 | 1)
         error("`strategy` context cannot be used while defining the strategy itself")
         strategy.matrix(x=[strategy.job_index])
+
+
+@expect_errors
+def test_wrong_calls(error):
+    @job
+    def j1():
+        run("echo hello")
+        error("job `j1` specifies both `uses` (with `call`) and steps")
+        call("foo")
+        error("job `j1` must specify `uses` (via `call`) in order to specify `with`")
+        with_(arg="bar")
+
+    @job
+    def j2():
+        call("foo")
+        error("job `j2` has already specified `uses` (with `call`)")
+        call("bar")
+        error("job `j2` adds steps when `uses` is already set")
+        run("echo hello")
+        error(
+            "job `j2` cannot set `runs-on` as it has already specified `uses` (with `call`)"
+        )
+        runs_on("ubuntu-latest")
