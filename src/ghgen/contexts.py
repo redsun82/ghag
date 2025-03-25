@@ -72,14 +72,22 @@ class Contexts:
 
     strategy: Strategy
 
+    secrets: FlatMap
+    vars: FlatMap
+    env: FlatMap
+
 
 steps = Contexts.steps
 matrix = Contexts.matrix
 runner = Contexts.runner
+secrets = Contexts.secrets
+vars = Contexts.vars
+env = Contexts.env
 
 # we don't expose the following
 # needs: handled through job handles returned by @job
 # jobs: handled via `outputs` function
+# inputs: handled via `input` function
 # strategy: replaced by a ProxyExpr to also be the `strategy` field setter
 # job: replaced by a ProxyExpr to also be the `@job` decorator
 
