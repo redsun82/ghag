@@ -864,6 +864,35 @@ def _dump_job_outputs(id: str, j: Job):
         )
 
 
+def output(value: Value, description: str | None = None, *, id: str | None = None):
+    instance = _WorkflowOrJobUpdaters.instance("outputs")
+    if isinstance(instance, Workflow) and not instance.on.workflow_call:
+        _ctx.error(
+            "`output` in a workflow can only be used if `on.workflow_call` is set"
+        )
+        return
+    if isinstance(instance, Job) and description is not None:
+        _ctx.error(f"`description` can only be used in a workflow, not in a job")
+    description = description and textwrap.dedent(description.strip("\n"))
+    match instance, value, id:
+        case Workflow(), RefExpr(_segments=("needs", *rest)), _:
+            output(RefExpr("jobs", *rest), description=description, id=id)
+        case (Job(), _, str() as id) | (Job(), RefExpr(_segments=(*_, id)), None):
+            _JobUpdaters.outputs(((id, value),))
+        case (Workflow(), _, str() as id) | (
+            Workflow(),
+            RefExpr(_segments=(*_, id)),
+            None,
+        ):
+            on.workflow_call._outputs(
+                ((id, Output(value=value, description=description)),)
+            )
+        case _:
+            _ctx.error(
+                f"unsupported unnamed output `{instantiate(value)}`, it either must be a context field or `id` must be provided"
+            )
+
+
 def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typing.Any):
     instance = _WorkflowOrJobUpdaters.instance("outputs")
     if isinstance(instance, Workflow) and not instance.on.workflow_call:
@@ -878,10 +907,8 @@ def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typin
         match instance, arg:
             case Workflow(), RefExpr(_segments=("needs", id)) if id in instance.jobs:
                 _dump_job_outputs(id, instance.jobs[id])
-            case Workflow(), RefExpr(_segments=(*head, tail)):
-                on.workflow_call._outputs(((tail, Output(value=arg)),))
-            case Job(), RefExpr(_segments=(*head, tail)):
-                _JobUpdaters.outputs(((tail, arg),))
+            case _, RefExpr():
+                output(arg)
             case Job(), _StepUpdater():
                 _dump_step_outputs(arg._step)
             case Workflow(), _StepUpdater():
@@ -898,13 +925,9 @@ def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typin
                         _dump_job_outputs(id, j)
             case _:
                 unsupported()
-    match instance:
-        case Workflow():
-            kwargs = {Element._key(k): Output(value=a) for k, a in kwargs.items()}
-            on.workflow_call._outputs(**kwargs)
-        case Job():
-            kwargs = {Element._key(k): a for k, a in kwargs.items()}
-            _JobUpdaters.outputs(**kwargs)
+    for k, a in kwargs.items():
+        k = Element._key(k)
+        output(a, id=k)
 
 
 always = function("always", 0)

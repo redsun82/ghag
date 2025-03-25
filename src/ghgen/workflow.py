@@ -75,6 +75,9 @@ class Output(Element):
     _: dataclasses.KW_ONLY
     value: Value
 
+    def asdict(self) -> typing.Any:
+        return _flow_text(super().asdict(), "description")
+
 
 class Trigger(Element):
     types: list[str]
@@ -267,6 +270,17 @@ class On(Element):
         )
 
 
+def _flow_text(d: dict, *keys: str) -> dict:
+    for k in keys:
+        v = d.get(k)
+        if v is None or "\n" not in v:
+            continue
+        if v[-1] != "\n":
+            v += "\n"
+        d[k] = LiteralScalarString(v)
+    return d
+
+
 class Step(Element):
     id: str
     name: Value
@@ -287,11 +301,7 @@ class Step(Element):
         needs = ret.pop("needs", None)
         if isinstance(self.if_, Expr):
             ret["if"] = self.if_._formula
-        run = ret.get("run")
-        if run and "\n" in run:
-            if run[-1] != "\n":
-                run += "\n"
-            ret["run"] = LiteralScalarString(run)
+        ret = _flow_text(ret, "run")
         if needs:
             ret = CommentedMap(ret)
             ret.yaml_set_start_comment(f"needs {", ".join(needs)}", indent=4)

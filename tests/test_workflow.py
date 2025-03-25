@@ -913,6 +913,55 @@ def test_jolly_workflow_outputs():
 
 @expect(
     """
+# generated from test_workflow.py::test_singled_out_workflow_outputs
+on:
+  workflow_call:
+    outputs:
+      one:
+        description: |
+          This is the description of
+          output one
+        value: ${{ jobs.j1.outputs.one }}
+      three:
+        description: this is three
+        value: ${{ jobs.j2.outputs.three }}
+      TWO:
+        description: this is two
+        value: ${{ jobs.j1.outputs.two }}
+jobs:
+  j1:
+    outputs:
+      one: 1
+      two: 2
+  j2:
+    outputs:
+      three: 3
+"""
+)
+def test_singled_out_workflow_outputs():
+    on.workflow_call()
+
+    @job
+    def j1():
+        outputs(one=1, two=2)
+
+    @job
+    def j2():
+        outputs(three=3)
+
+    output(
+        j1.outputs.one,
+        """
+        This is the description of
+        output one
+        """,
+    )
+    output(j2.outputs.three, description="this is three")
+    output(j1.outputs.two, id="TWO", description="this is two")
+
+
+@expect(
+    """
 # generated from test_workflow.py::test_needs
 on:
   workflow_dispatch: {}
