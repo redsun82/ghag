@@ -339,6 +339,8 @@ class Job(Element):
     strategy: Strategy
     env: dict[str, Value]
     steps: list[Step]
+    uses: str
+    with_: dict[str, Value]
 
     def asdict(self) -> typing.Any:
         return _set_flow_style(super().asdict(), "needs")

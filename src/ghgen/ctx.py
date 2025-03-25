@@ -308,6 +308,8 @@ class _JobUpdaters(_Updaters):
     container = ContainerUpdater(Container)
 
     service = _MapUpdater(Container)
+    uses = _Updater(str)
+    with_ = _Updater(dict)
 
 
 _ctx = _Context()
@@ -433,6 +435,22 @@ def needs(*args: RefExpr) -> list[str]:
         # this checks and autofills needs
         _ctx.validate([*args])
     return prereqs
+
+
+def uses(target: str):
+    if _ctx.current_job and _ctx.current_job.steps:
+        _ctx.error(f"job `{_ctx.current_job_id}` specifies both `uses` and `steps`")
+    _JobUpdaters.uses(target)
+
+
+# provide an alias for less confusion with `use`
+call = uses
+
+
+def with_(*args, **kwargs):
+    if _ctx.current_job and _ctx.current_job.steps:
+        _ctx.error(f"job `{_ctx.current_job_id}` specifies both `with_` and `steps`")
+    _JobUpdaters.with_(*args, **kwargs)
 
 
 class _StrategyUpdater(ProxyExpr):
