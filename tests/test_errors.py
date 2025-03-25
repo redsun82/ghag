@@ -302,3 +302,18 @@ def test_wrong_runner_use(error):
         strategy.matrix(x=[runner.environment])
         error("`runner` cannot be used to update a job `runs-on`")
         runs_on(runner.os)
+
+
+@expect_errors
+def test_wrong_strategy_context_use(error):
+    error("`strategy` can only be used inside a job")
+    env(FOO=strategy)
+
+    @job
+    def j():
+        error("`strategy` context cannot be used while defining the strategy itself")
+        strategy.fail_fast(strategy)
+        error("`strategy` context cannot be used while defining the strategy itself")
+        strategy.max_parallel(strategy & 2 | 1)
+        error("`strategy` context cannot be used while defining the strategy itself")
+        strategy.matrix(x=[strategy.job_index])

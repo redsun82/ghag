@@ -244,3 +244,14 @@ class ContextBase(threading.local, RuleSet):
                 field != "runs_on", f"`runner` cannot be used to update a job `runs-on`"
             )
         )
+
+    @rule(Contexts.strategy)
+    def v(self, *, target: typing.Any = None, field: str | None = None):
+        return self.check(
+            self.current_job,
+            "`strategy` can only be used inside a job",
+        ) and self.check(
+            not isinstance(target, (Strategy, Matrix))
+            or (isinstance(target, Job) and field == "strategy"),
+            "`strategy` context cannot be used while defining the strategy itself",
+        )
