@@ -246,6 +246,134 @@ class _MapUpdater[**P, F](_Updater):
         return super().__call__({key: self.value_init(*args, **kwargs)})
 
 
+@dataclass
+class _InputUpdater(ProxyExpr):
+    _input: Input | None = None
+    _trigger: WorkflowCall | WorkflowDispatch | None = None
+
+    def __init__(
+        self,
+        input: Input | None = None,
+        trigger: WorkflowCall | WorkflowDispatch | None = None,
+    ):
+        super().__init__()
+        self._input = input
+
+    def __call__(self, description: str | None = None) -> typing.Self:
+        return self.description(description)
+
+    @property
+    def _triggers(self) -> tuple[WorkflowCall | WorkflowDispatch, ...]:
+        if self._trigger is not None:
+            return (self._trigger,)
+        if not _ctx.current_workflow:
+            return ()
+        return tuple(
+            t
+            for t in (
+                _ctx.current_workflow.on.workflow_call,
+                _ctx.current_workflow.on.workflow_dispatch,
+            )
+            if t is not None
+        )
+
+    def _ensure_input(self) -> typing.Self:
+        if self._input:
+            return self
+        ret = type(self)(Input())
+        if not _ctx.current_workflow or _ctx.current_job:
+            _ctx.error("`on.input` can only be used in a workflow")
+            return ret
+        if not self._triggers:
+            _ctx.error(
+                "`on.input` must be used after setting either `on.workflow_call` or `on.workflow_dispatch`"
+            )
+            return ret
+        for t in self._triggers:
+            if t.inputs is None:
+                t.inputs = []
+            t.inputs.append(ret._input)
+        return ret
+
+    def _finalize(self):
+        assert self._input
+        try:
+            self._input.__post_init__()
+        except ValueError as e:
+            _ctx.error(e.args[0])
+
+    def id(self, id: str) -> typing.Self:
+        if self._input is None:
+            self = self()
+        if self._input.id is not None:
+            _ctx.error(f"id was already specified for this input as `{self._input.id}`")
+        elif any(i.id == id for t in self._triggers if t is not None for i in t.inputs):
+            _ctx.error(f"id `{id}` was already specified for an input")
+        else:
+            self._input.id = id
+        return self
+
+    def required(self, value: bool = True) -> typing.Self:
+        ret = self._ensure_input()
+        ret._input.required = value
+        return ret
+
+    def default(self, value: typing.Any):
+        ret = self._ensure_input()
+        ret._input.default = value
+        ret._finalize()
+        return ret
+
+    def description(self, value: str | None) -> typing.Self:
+        ret = self._ensure_input()
+        assert ret._input is not None
+        ret._input.description = value
+        return ret
+
+    def type(self, value: typing.Any) -> typing.Self:
+        ret = self._ensure_input()
+        ret._input.type = value
+        ret._finalize()
+        return ret
+
+    def options(
+        self, seq_or_first: str | typing.Iterable[str] | None, *rest: str
+    ) -> typing.Self:
+        match seq_or_first, rest:
+            case str(), _:
+                seq = [seq_or_first] + list(rest)
+            case typing.Iterable(), ():
+                seq = list(seq_or_first)
+            case None, ():
+                seq = seq_or_first
+            case _:
+                _ctx.error(
+                    "`options` must be given either a sequence of strings or string arguments"
+                )
+                return self
+        ret = self._ensure_input()
+        ret._input.options = seq
+        ret._finalize()
+        return ret
+
+    def ensure_id(self) -> str:
+        ret = self._ensure_input()
+        if ret._input.id is None:
+            id = _get_var_name(lambda v: v is ret)
+            ret._input.id = _allocate_id(
+                id or "input",
+                lambda id: all(i.id != id for i in _ctx.current_workflow.inputs),
+                start_from_one=id is None,
+            )
+        return ret._input.id
+
+    def _get_expr(self) -> Expr:
+        if self._input is None:
+            return ~ErrorExpr("`input` alone cannot be used in an expression")
+        id = self.ensure_id()
+        return getattr(Contexts.inputs, id)
+
+
 class _WorkflowUpdaters(_Updaters):
     @classmethod
     def instance(cls, reason: str):
@@ -267,16 +395,26 @@ class _WorkflowUpdaters(_Updaters):
         return _ctx.current_workflow
 
     class OnUpdater(_Updater):
+        input = _InputUpdater()
         pull_request = _Updater(PullRequest)
         push = _Updater(Push)
 
         class WorkflowDispatchUpdater(_Updater):
-            input = _MapUpdater(Input)
+            @property
+            def input(self) -> _InputUpdater:
+                self()
+                return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_dispatch)
 
         workflow_dispatch = WorkflowDispatchUpdater(WorkflowDispatch)
 
-        class WorkflowCallUpdater(WorkflowDispatchUpdater):
+        class WorkflowCallUpdater(_Updater):
             secret = _MapUpdater(Secret)
+
+            @property
+            def input(self) -> _InputUpdater:
+                self()
+                return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+
             _outputs = _Updater(dict)
 
             def output(
@@ -585,124 +723,6 @@ def _get_var_name(pred: typing.Callable[[object], bool]) -> str | None:
     return next((var for var, value in frame.f_locals.items() if pred(value)), None)
 
 
-@dataclass
-class _InputUpdater(ProxyExpr):
-    _input: Input | None = None
-
-    def __init__(self, input: Input | None = None):
-        super().__init__()
-        self._input = input
-
-    def __call__(self, description: str | None = None) -> typing.Self:
-        return self.description(description)
-
-    @property
-    def _triggers(self) -> tuple[WorkflowCall | None, WorkflowDispatch | None]:
-        if not _ctx.current_workflow:
-            return None, None
-        return (
-            _ctx.current_workflow.on.workflow_call,
-            _ctx.current_workflow.on.workflow_dispatch,
-        )
-
-    def _ensure_input(self) -> typing.Self:
-        if self._input:
-            return self
-        ret = _InputUpdater(Input())
-        if not _ctx.current_workflow or _ctx.current_job:
-            _ctx.error("`input` can only be used in a workflow")
-            return ret
-        if all(t is None for t in self._triggers):
-            _ctx.error(
-                "`input` must be used after setting either `on.workflow_call` or `on.workflow_dispatch`"
-            )
-            return ret
-        for t in self._triggers:
-            if t is not None:
-                if t.inputs is None:
-                    t.inputs = []
-                t.inputs.append(ret._input)
-        return ret
-
-    def _finalize(self):
-        assert self._input
-        try:
-            self._input.__post_init__()
-        except ValueError as e:
-            _ctx.error(e.args[0])
-
-    def id(self, id: str) -> typing.Self:
-        if self._input is None:
-            self = self()
-        if self._input.id is not None:
-            _ctx.error(f"id was already specified for this input as `{self._input.id}`")
-        elif any(i.id == id for t in self._triggers if t is not None for i in t.inputs):
-            _ctx.error(f"id `{id}` was already specified for an input")
-        else:
-            self._input.id = id
-        return self
-
-    def required(self, value: bool = True) -> typing.Self:
-        ret = self._ensure_input()
-        ret._input.required = value
-        return ret
-
-    def default(self, value: typing.Any):
-        ret = self._ensure_input()
-        ret._input.default = value
-        ret._finalize()
-        return ret
-
-    def description(self, value: str | None) -> typing.Self:
-        ret = self._ensure_input()
-        assert ret._input is not None
-        ret._input.description = value
-        return ret
-
-    def type(self, value: typing.Any) -> typing.Self:
-        ret = self._ensure_input()
-        ret._input.type = value
-        ret._finalize()
-        return ret
-
-    def options(
-        self, seq_or_first: str | typing.Iterable[str] | None, *rest: str
-    ) -> typing.Self:
-        match seq_or_first, rest:
-            case str(), _:
-                seq = [seq_or_first] + list(rest)
-            case typing.Iterable(), ():
-                seq = list(seq_or_first)
-            case None, ():
-                seq = seq_or_first
-            case _:
-                _ctx.error(
-                    "`options` must be given either a sequence of strings or string arguments"
-                )
-                return self
-        ret = self._ensure_input()
-        ret._input.options = seq
-        ret._finalize()
-        return ret
-
-    def ensure_id(self) -> str:
-        ret = self._ensure_input()
-        if ret._input.id is None:
-            id = _get_var_name(lambda v: v is ret)
-            ret._input.id = _allocate_id(
-                id or "input",
-                lambda id: all(i.id != id for i in _ctx.current_workflow.inputs),
-                start_from_one=id is None,
-            )
-        return ret._input.id
-
-    def _get_expr(self) -> Expr:
-        if self._input is None:
-            return ~ErrorExpr("`input` alone cannot be used in an expression")
-        id = self.ensure_id()
-        return getattr(Contexts.inputs, id)
-
-
 def _ensure_step_id(s: Step) -> str:
     if s.id is None:
         id = _get_var_name(lambda v: isinstance(v, _StepUpdater) and v._step is s)
@@ -855,7 +875,6 @@ class _StepUpdater(ProxyExpr):
         return _ensure_step_id(self._ensure_step()._step)
 
 
-input = _InputUpdater()
 step = _StepUpdater()
 run = step.run
 use = step.uses

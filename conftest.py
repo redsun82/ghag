@@ -73,6 +73,19 @@ def error(request):
 
     class Wrapper:
         id = None
+        err = None
+
+        @property
+        def is_primed(self) -> bool:
+            try:
+                _ = self.actual
+                return True
+            except (AttributeError, AssertionError):
+                return False
+
+        @property
+        def actual(self):
+            return self.err.value
 
         def __call__(self, expected=None):
             expected_errors.append((_Call.get("error"), expected))
@@ -84,13 +97,14 @@ def error(request):
 
         def __exit__(self, *args):
             ret = self.ctx_manager.__exit__(*args)
-            self.actual = self.err.value
             return ret
 
     e = Wrapper()
     yield e
 
-    assert e.actual, "error.actual was not updated"
+    assert e.err, "`error` was not updated as a context manager"
+    if not e.is_primed:
+        return
     this_file = request.node.path
     actual = {}
     for err in e.actual.errors:
@@ -127,8 +141,8 @@ def error(request):
 def expect_errors(func):
     def wrapper(error):
         error.id = func.__name__
-        wf = workflow(lambda: func(error), id=func.__name__)
         with error:
+            wf = workflow(lambda: func(error), id=func.__name__)
             _ = wf.worfklow
 
     return wrapper

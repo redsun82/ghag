@@ -313,8 +313,7 @@ jobs:
 """
 )
 def test_matrix_from_input():
-    on.workflow_dispatch()
-    i = input()
+    i = on.workflow_dispatch.input()
     strategy.matrix(fromJson(i))
     run(f"{matrix.foo}, {matrix.bar}")
     step("Fail").if_(contains(i, "failed"))
@@ -449,11 +448,10 @@ jobs:
 """
 )
 def test_workflow_dispatch_inputs():
-    on.workflow_dispatch()
-    foo = input.description("a foo").required()
-    bar = input("a bar").type("boolean")
-    baz = input.options("a", "b", "c").default("b")
-    an_env = input.type("environment")
+    foo = on.workflow_dispatch.input.description("a foo").required()
+    bar = on.workflow_dispatch.input("a bar").type("boolean")
+    baz = on.workflow_dispatch.input.options("a", "b", "c").default("b")
+    an_env = on.workflow_dispatch.input.type("environment")
     run(f"""
         echo {foo}
         echo {bar}
@@ -501,9 +499,9 @@ jobs:
 def test_workflow_call():
     on.workflow_call.secret("token", required=True).secret("auth", "auth if provided")
 
-    foo = input.required()
-    bar = input.type("boolean")
-    baz = input.options("a", "b", "c").default("b")
+    foo = on.workflow_call.input.required()
+    bar = on.workflow_call.input.type("boolean")
+    baz = on.workflow_call.input.options("a", "b", "c").default("b")
 
     run(f"""
         echo {foo}
@@ -556,9 +554,9 @@ jobs:
 )
 def test_inputs():
     on.workflow_dispatch().workflow_call()
-    foo = input("a foo").required()
-    bar = input.default(42)
-    baz = input.default(True)
+    foo = on.input("a foo").required()
+    bar = on.input.default(42)
+    baz = on.input.default(True)
     run(f"""
         echo {foo}
         echo {bar} 
@@ -591,9 +589,9 @@ jobs:
 )
 def test_input_underscores():
     on.workflow_dispatch()
-    my_input = input()
-    my_other_input = input().id("my_other_input")
-    yet__another__input = input()
+    my_input = on.input()
+    my_other_input = on.input().id("my_other_input")
+    yet__another__input = on.input()
     run(f"echo {my_input} {my_other_input} {yet__another__input}")
 
 
