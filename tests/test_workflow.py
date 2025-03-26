@@ -465,12 +465,6 @@ def test_workflow_dispatch_inputs():
 # generated from test_workflow.py::test_workflow_call
 on:
   workflow_call:
-    secrets:
-      token:
-        required: true
-      auth:
-        description: auth if provided
-        required: false
     inputs:
       foo:
         required: true
@@ -486,19 +480,26 @@ on:
         - a
         - b
         - c
+    secrets:
+      token:
+        required: true
+      auth:
+        description: auth if provided
+        required: false
 jobs:
   test_workflow_call:
     runs-on: ubuntu-latest
     steps:
-    - run: |
+    - if: secrets.token && secrets.auth
+      run: |
         echo ${{ inputs.foo }}
         echo ${{ inputs.bar }}
         echo ${{ inputs.baz }}
 """
 )
 def test_workflow_call():
-    on.workflow_call.secret("token", required=True).secret("auth", "auth if provided")
-
+    token = on.workflow_call.secret().required()
+    auth = on.workflow_call.secret("auth if provided")
     foo = on.workflow_call.input.required()
     bar = on.workflow_call.input.type("boolean")
     baz = on.workflow_call.input.options("a", "b", "c").default("b")
@@ -507,7 +508,7 @@ def test_workflow_call():
         echo {foo}
         echo {bar}
         echo {baz}
-    """)  # fmt: skip
+    """).if_(token & auth)  # fmt: skip
 
 
 @expect(

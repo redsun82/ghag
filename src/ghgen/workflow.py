@@ -40,9 +40,7 @@ class Input[T](Element):
     options: list[str]
 
     def asdict(self) -> typing.Any:
-        ret = super().asdict()
-        ret.pop("id", None)
-        return ret
+        return _flow_text(super().asdict(), "description")
 
     def __post_init__(self):
         if self.default is not None:
@@ -67,7 +65,11 @@ class Input[T](Element):
 class Secret(Element):
     description: str
     _: dataclasses.KW_ONLY
+    id: str
     required: bool = False
+
+    def asdict(self) -> typing.Any:
+        return _flow_text(super().asdict(), "description")
 
 
 class Output(Element):
@@ -164,11 +166,13 @@ class Schedule(Element):
     cron: str
 
 
-def _dictionarize_inputs(inputs: list[Input], d: dict) -> dict:
-    if inputs is None:
-        return d
-    serialized: list[Input] = d.pop("inputs")
-    d["inputs"] = {s.id: i for s, i in zip(inputs, serialized) if s.id}
+def _dictionarize(d: dict, *args: str) -> dict:
+    for k in args:
+        if k not in d:
+            continue
+        serialized: list = d.pop(k)
+        print(serialized)
+        d[k] = {id: x for id, x in ((e.pop("id", None), e) for e in serialized) if id}
     return d
 
 
@@ -176,16 +180,16 @@ class WorkflowDispatch(Element):
     inputs: list[Input]
 
     def asdict(self) -> typing.Any:
-        return _dictionarize_inputs(self.inputs, super().asdict())
+        return _dictionarize(super().asdict(), "inputs")
 
 
 class WorkflowCall(Element):
     inputs: list[Input]
-    secrets: dict[str, Secret]
+    secrets: list[Secret]
     outputs: dict[str, Output]
 
     def asdict(self) -> typing.Any:
-        return _dictionarize_inputs(self.inputs, super().asdict())
+        return _dictionarize(super().asdict(), "inputs", "secrets")
 
 
 class On(Element):
@@ -386,10 +390,10 @@ class Workflow(Element):
             if t is not None
             for i in t.inputs or ()
         }
-        inputs = {
-            id(i): i
-            for t in (self.on.workflow_call, self.on.workflow_dispatch)
-            if t is not None
-            for i in t.inputs or ()
-        }
         return [*inputs.values()]
+
+    @property
+    def secrets(self) -> list[Secret]:
+        if not self.on.workflow_call:
+            return []
+        return self.on.workflow_call.secrets

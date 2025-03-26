@@ -281,7 +281,7 @@ class _InputUpdater(ProxyExpr):
     def _ensure_input(self) -> typing.Self:
         if self._input:
             return self
-        ret = type(self)(Input())
+        ret = type(self)(Input(), self._trigger)
         if not _ctx.current_workflow or _ctx.current_job:
             _ctx.error("`on.input` can only be used in a workflow")
             return ret
@@ -375,6 +375,71 @@ class _InputUpdater(ProxyExpr):
         return getattr(Contexts.inputs, id)
 
 
+@dataclass
+class _SecretUpdater(ProxyExpr):
+    _secret: Secret | None = None
+    _trigger: WorkflowCall | None = None
+
+    def __init__(
+        self, secret: Secret | None = None, trigger: WorkflowCall | None = None
+    ):
+        super().__init__()
+        self._secret = secret
+        self._trigger = trigger
+
+    def __call__(self, description: str | None = None) -> typing.Self:
+        return self.description(description)
+
+    def _ensure_secret(self) -> typing.Self:
+        if self._secret:
+            return self
+        ret = type(self)(Secret(), self._trigger)
+        if self._trigger.secrets is None:
+            self._trigger.secrets = []
+        self._trigger.secrets.append(ret._secret)
+        return ret
+
+    def id(self, id: str) -> typing.Self:
+        if self._secret is None:
+            self = self()
+        if self._secret.id is not None:
+            _ctx.error(
+                f"id was already specified for this secret as `{self._secret.id}`"
+            )
+        elif any(s.id == id for s in self._trigger.secrets):
+            _ctx.error(f"id `{id}` was already specified for a secret")
+        else:
+            self._secret.id = id
+        return self
+
+    def required(self, value: bool = True) -> typing.Self:
+        ret = self._ensure_secret()
+        ret._secret.required = value
+        return ret
+
+    def description(self, value: str | None) -> typing.Self:
+        ret = self._ensure_secret()
+        ret._secret.description = value
+        return ret
+
+    def ensure_id(self) -> str:
+        ret = self._ensure_secret()
+        if ret._secret.id is None:
+            id = _get_var_name(lambda v: v is ret)
+            ret._secret.id = _allocate_id(
+                id or "input",
+                lambda id: all(i.id != id for i in _ctx.current_workflow.secrets),
+                start_from_one=id is None,
+            )
+        return ret._secret.id
+
+    def _get_expr(self) -> Expr:
+        if self._secret is None:
+            return ~ErrorExpr("`secret` alone cannot be used in an expression")
+        id = self.ensure_id()
+        return getattr(Contexts.secrets, id)
+
+
 class _WorkflowUpdaters(_Updaters):
     @classmethod
     def instance(cls, reason: str):
@@ -409,7 +474,10 @@ class _WorkflowUpdaters(_Updaters):
         workflow_dispatch = WorkflowDispatchUpdater(WorkflowDispatch)
 
         class WorkflowCallUpdater(_Updater):
-            secret = _MapUpdater(Secret)
+            @property
+            def secret(self) -> _SecretUpdater:
+                self()
+                return _SecretUpdater(trigger=_ctx.current_workflow.on.workflow_call)
 
             @property
             def input(self) -> _InputUpdater:
