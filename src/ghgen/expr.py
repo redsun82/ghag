@@ -43,7 +43,7 @@ class Expr(abc.ABC):
             case Expr() as e:
                 yield from e._get_paths()
             case str() as s:
-                for m in re.finditer("\0([a-z\\-_.]*)\0", s):
+                for m in re.finditer("\0([a-zA-Z0-9\\-_.]+)", s):
                     yield tuple(m[1].split("."))
             case dict():
                 for k, v in x.items():
@@ -179,7 +179,7 @@ class RefExpr(Expr):
 
     @property
     def _syntax(self) -> str:
-        return f"\0{self._path}\0"
+        return f"\0{self._path}"
 
     def _get_paths(self) -> typing.Generator[tuple[str, ...], None, None]:
         yield self._segments

@@ -117,6 +117,17 @@ class ContextBase(threading.local, RuleSet):
             self.error(message)
         return cond
 
+    @rule()
+    def v(self, *, target: typing.Any = None, field: str | None = None):
+        match target, field:
+            case (WorkflowCall(), "outputs"):
+                return True
+            case (Workflow(), "on" | "name") | (On() | Trigger(), _):
+                self.error(f"no contextual information can be used in `{field}`")
+                return False
+            case _:
+                return True
+
     @rule(steps)
     def v(self, *, target: typing.Any = None, field: str | None = None):
         return self.check(

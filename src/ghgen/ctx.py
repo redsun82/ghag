@@ -211,8 +211,8 @@ class _Updater[**P, F]:
             try:
                 value = self.field_init(*args, **kwargs)
                 merged = _merge(self.field, current, value)
-            except (AssertionError, TypeError, ValueError):
-                _ctx.error(f"illegal assignment to `{self.field}`")
+            except (AssertionError, TypeError, ValueError) as e:
+                _ctx.error(f"illegal assignment to `{self.field}` ({e})")
                 return parent, None, current
         setattr(parent, self.field, merged)
         return parent, value, merged

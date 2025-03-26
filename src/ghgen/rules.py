@@ -4,7 +4,7 @@ from .types import RefTree
 from .expr import RefExpr, reftree
 
 
-def rule(e: RefExpr):
+def rule(e: RefExpr = RefExpr()):
     def decorator(f):
         assert callable(f)
         f.rule = e._segments
@@ -65,6 +65,8 @@ class RuleSet(metaclass=_RuleSetMetaclass):
 
     def validate(self, value: typing.Any, **kwargs: typing.Any) -> bool:
         tree = reftree(value)
+        if not tree:
+            return True
         for path in self._traverse_reftree(tree):
             for rule, func in self._rules.get(len(path), ()):
                 m = self._match(path, rule)

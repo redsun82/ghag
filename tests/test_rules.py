@@ -26,35 +26,54 @@ class Contexts:
 x = Contexts.x
 
 
-class X(RuleSet):
-    def __init__(self):
-        self.mock = unittest.mock.Mock()
+@pytest.fixture
+def sut():
+    class X(RuleSet):
+        def __init__(self):
+            self.mock = unittest.mock.Mock()
 
-    @rule(x)
-    def v(self, *args, **kwargs):
-        return self.mock.x(*args, **kwargs)
+        @rule(x)
+        def v(self, *args, **kwargs):
+            return self.mock.x(*args, **kwargs)
 
-    @rule(x.y)
-    def v(self, *args, **kwargs):
-        return self.mock.xy(*args, **kwargs)
+        @rule(x.y)
+        def v(self, *args, **kwargs):
+            return self.mock.xy(*args, **kwargs)
 
-    @rule(x.z)
-    def v(self, *args, **kwargs):
-        return self.mock.xz(*args, **kwargs)
+        @rule(x.z)
+        def v(self, *args, **kwargs):
+            return self.mock.xz(*args, **kwargs)
 
-    @rule(x.z._.a)
-    def v(self, *args, **kwargs):
-        return self.mock.xz_a(*args, **kwargs)
+        @rule(x.z._.a)
+        def v(self, *args, **kwargs):
+            return self.mock.xz_a(*args, **kwargs)
 
-    @rule(x.z._.a._)
-    def v(self, *args, **kwargs):
-        return self.mock.xz_a_(*args, **kwargs)
+        @rule(x.z._.a._)
+        def v(self, *args, **kwargs):
+            return self.mock.xz_a_(*args, **kwargs)
+
+    ret = X()
+    for f in (ret.mock.x, ret.mock.xy, ret.mock.xz, ret.mock.xz_a, ret.mock.xz_a_):
+        f.return_value = True
+    return ret
 
 
 @pytest.fixture
-def sut():
+def sut_with_empty_rule():
+    class X(RuleSet):
+        def __init__(self):
+            self.mock = unittest.mock.Mock()
+
+        @rule()
+        def v(self, *args, **kwargs):
+            return self.mock.empty(*args, **kwargs)
+
+        @rule(x)
+        def v(self, *args, **kwargs):
+            return self.mock.x(*args, **kwargs)
+
     ret = X()
-    for f in (ret.mock.x, ret.mock.xy, ret.mock.xz, ret.mock.xz_a, ret.mock.xz_a_):
+    for f in (ret.mock.empty, ret.mock.x):
         f.return_value = True
     return ret
 
@@ -117,3 +136,27 @@ def test_rules_pass_with_two_placeholders(sut):
         unittest.mock.call.xz_a("foo"),
         unittest.mock.call.xz_a_("foo", "bar"),
     ]
+
+
+def test_empty_ruleset_pass(sut_with_empty_rule):
+    assert sut_with_empty_rule.validate(x)
+    assert sut_with_empty_rule.mock.mock_calls == [
+        unittest.mock.call.empty(),
+        unittest.mock.call.x(),
+    ]
+
+
+def test_empty_ruleset_fail(sut_with_empty_rule):
+    sut_with_empty_rule.mock.empty.return_value = False
+    assert not sut_with_empty_rule.validate(x)
+    assert sut_with_empty_rule.mock.mock_calls == [
+        unittest.mock.call.empty(),
+    ]
+
+
+def test_empty_ruleset_always_pass_when_no_contexts(sut_with_empty_rule):
+    sut_with_empty_rule.mock.empty.return_value = False
+    assert sut_with_empty_rule.validate("a simple string")
+    assert sut_with_empty_rule.validate(42)
+    assert sut_with_empty_rule.validate(LiteralExpr(42) & "foo")
+    assert sut_with_empty_rule.mock.mock_calls == []

@@ -82,21 +82,25 @@ class Output(Element):
 
 
 class Trigger(Element):
+    pass
+
+
+class TypedTrigger(Trigger):
     types: list[str]
 
 
-class TypedTrigger(type):
+class StrictTypedTrigger(type):
     def __new__(cls, *types: str):
         return type(
-            "TypedTrigger",
-            (Trigger,),
+            f"StrictTypedTrigger[{', '.join(map(repr, types))}]",
+            (TypedTrigger,),
             {
                 "allowed_types": tuple(sorted(types)),
             },
         )
 
 
-class ChangeTrigger(Element):
+class ChangeTrigger(Trigger):
     branches: list[str]
     ignore_branches: list[str]
     paths: list[str]
@@ -105,7 +109,7 @@ class ChangeTrigger(Element):
 
 class PullRequest(
     ChangeTrigger,
-    TypedTrigger(
+    StrictTypedTrigger(
         "assigned",
         "unassigned",
         "labeled",
@@ -134,7 +138,7 @@ class PullRequest(
 
 class PullRequestTarget(
     ChangeTrigger,
-    TypedTrigger(
+    StrictTypedTrigger(
         "assigned",
         "unassigned",
         "labeled",
@@ -162,7 +166,7 @@ class Push(ChangeTrigger):
     ignore_tags: list[str]
 
 
-class Schedule(Element):
+class Schedule(Trigger):
     cron: str
 
 
@@ -176,14 +180,14 @@ def _dictionarize(d: dict, *args: str) -> dict:
     return d
 
 
-class WorkflowDispatch(Element):
+class WorkflowDispatch(Trigger):
     inputs: list[Input]
 
     def asdict(self) -> typing.Any:
         return _dictionarize(super().asdict(), "inputs")
 
 
-class WorkflowCall(Element):
+class WorkflowCall(Trigger):
     inputs: list[Input]
     secrets: list[Secret]
     outputs: dict[str, Output]
@@ -195,14 +199,16 @@ class WorkflowCall(Element):
 class On(Element):
     _preserve_underscores = True
 
-    branch_protection_rule: TypedTrigger("created", "edited", "deleted")
-    check_run: TypedTrigger("created", "completed", "requested_action", "rerequested")
-    check_suite: TypedTrigger("completed")
-    create: Element
-    delete: Element
-    deployment: Element
-    deployment_status: Element
-    discussion: TypedTrigger(
+    branch_protection_rule: StrictTypedTrigger("created", "edited", "deleted")
+    check_run: StrictTypedTrigger(
+        "created", "completed", "requested_action", "rerequested"
+    )
+    check_suite: StrictTypedTrigger("completed")
+    create: Trigger
+    delete: Trigger
+    deployment: Trigger
+    deployment_status: Trigger
+    discussion: StrictTypedTrigger(
         "created",
         "edited",
         "deleted",
@@ -217,11 +223,11 @@ class On(Element):
         "answered",
         "unanswered",
     )
-    discussion_comment: TypedTrigger("created", "edited", "deleted")
-    fork: Element
-    gollum: Element
-    issue_comment: TypedTrigger("created", "edited", "deleted")
-    issues: TypedTrigger(
+    discussion_comment: StrictTypedTrigger("created", "edited", "deleted")
+    fork: Trigger
+    gollum: Trigger
+    issue_comment: StrictTypedTrigger("created", "edited", "deleted")
+    issues: StrictTypedTrigger(
         "opened",
         "edited",
         "deleted",
@@ -239,18 +245,18 @@ class On(Element):
         "milestoned",
         "demilestoned",
     )
-    label: TypedTrigger("created", "edited", "deleted")
-    merge_group: TypedTrigger("checks_requested")
-    milestone: TypedTrigger("created", "closed", "opened", "edited", "deleted")
-    page_build: Element
-    public: Element
+    label: StrictTypedTrigger("created", "edited", "deleted")
+    merge_group: StrictTypedTrigger("checks_requested")
+    milestone: StrictTypedTrigger("created", "closed", "opened", "edited", "deleted")
+    page_build: Trigger
+    public: Trigger
     pull_request: PullRequest
-    pull_request_review: TypedTrigger("submitted", "edited", "dismissed")
-    pull_request_review_comment: TypedTrigger("created", "edited", "deleted")
+    pull_request_review: StrictTypedTrigger("submitted", "edited", "dismissed")
+    pull_request_review_comment: StrictTypedTrigger("created", "edited", "deleted")
     pull_request_target: PullRequestTarget
     push: Push
-    registry_package: TypedTrigger("published", "updated")
-    release: TypedTrigger(
+    registry_package: StrictTypedTrigger("published", "updated")
+    release: StrictTypedTrigger(
         "published",
         "unpublished",
         "created",
@@ -259,13 +265,13 @@ class On(Element):
         "prereleased",
         "released",
     )
-    repository_dispatch: Trigger
+    repository_dispatch: TypedTrigger
     schedule: Schedule
     status: Element
-    watch: TypedTrigger("started")
+    watch: StrictTypedTrigger("started")
     workflow_call: WorkflowCall
     workflow_dispatch: WorkflowDispatch
-    workflow_run: TypedTrigger("completed", "in_progress", "requested")
+    workflow_run: StrictTypedTrigger("completed", "in_progress", "requested")
 
     @property
     def has_triggers(self) -> bool:
