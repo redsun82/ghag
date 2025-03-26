@@ -597,6 +597,33 @@ def test_input_underscores():
 
 @expect(
     """
+# generated from test_workflow.py::test_different_inputs
+on:
+  workflow_call:
+    inputs:
+      a:
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      b:
+        required: false
+        type: string
+jobs:
+  test_different_inputs:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo ${{ inputs.a }} ${{ inputs.b }}
+"""
+)
+def test_different_inputs():
+    a = on.workflow_call.input()
+    b = on.workflow_dispatch.input()
+    run(f"echo {a} {b}")
+
+
+@expect(
+    """
 # generated from test_workflow.py::test_id
 on:
   workflow_dispatch: {}

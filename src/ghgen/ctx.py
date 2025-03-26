@@ -258,6 +258,7 @@ class _InputUpdater(ProxyExpr):
     ):
         super().__init__()
         self._input = input
+        self._trigger = trigger
 
     def __call__(self, description: str | None = None) -> typing.Self:
         return self.description(description)
