@@ -885,27 +885,23 @@ def _dump_job_outputs(id: str, j: Job):
 
 
 def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typing.Any):
-    unsupported = lambda: _ctx.error(
-        f'unsupported unnamed output `{instantiate(arg)}`, must be `"*"`, a context field or a step'
-    )
     for arg in args:
         match arg:
             case RefExpr(_segments=(*_, id)):
                 _JobUpdaters.outputs(((id, arg),))
             case _StepUpdater():
                 _dump_step_outputs(arg._step)
-            case Expr():  # this must be done to avoid comparing Expr with "*"
-                unsupported()
-            case "*":
+            case str("*"):  # not "*" or it could make an `Expr` comparison
                 instance = _JobUpdaters.instance("outputs")
                 for s in instance.steps:
                     if s.outputs:
                         _dump_step_outputs(s)
             case _:
-                unsupported()
-    kwargs = {Element._key(k): a for k, a in kwargs.items()}
+                _ctx.error(
+                    f'unsupported unnamed output `{instantiate(arg)}`, must be `"*"`, a context field or a step'
+                )
     if kwargs:
-        _JobUpdaters.outputs(**kwargs)
+        _JobUpdaters.outputs(**{Element._key(k): a for k, a in kwargs.items()})
 
 
 always = function("always", 0)
