@@ -677,7 +677,6 @@ def test_id():
     step("use z").run(z.result)
 
     code = "\n".join(str(step(f"anon{i}").outcome) for i in range(3))
-    print("PROUT", code, reftree(code))
     step("use anonymous").run(code)
 
 
