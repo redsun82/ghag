@@ -75,6 +75,7 @@ class Secret(Element):
 class Output(Element):
     description: str
     _: dataclasses.KW_ONLY
+    id: str
     value: Value
 
     def asdict(self) -> typing.Any:
@@ -190,10 +191,10 @@ class WorkflowDispatch(Trigger):
 class WorkflowCall(Trigger):
     inputs: list[Input]
     secrets: list[Secret]
-    outputs: dict[str, Output]
+    outputs: list[Output]
 
     def asdict(self) -> typing.Any:
-        return _dictionarize(super().asdict(), "inputs", "secrets")
+        return _dictionarize(super().asdict(), "inputs", "secrets", "outputs")
 
 
 class On(Element):
@@ -397,9 +398,3 @@ class Workflow(Element):
             for i in t.inputs or ()
         }
         return [*inputs.values()]
-
-    @property
-    def secrets(self) -> list[Secret]:
-        if not self.on.workflow_call:
-            return []
-        return self.on.workflow_call.secrets

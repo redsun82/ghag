@@ -385,7 +385,9 @@ def test_at_least_one_job(error):
 def test_all_outputs_set(error):
     @workflow
     def w():
-        on.workflow_call.output(id="one").output("b", id="two").output(id="three")
+        on.workflow_call.output(id="one")
+        on.workflow_call.output(id="two").returns(2)
+        on.workflow_call.output(id="three")
         step("")
 
     error.id = "w"

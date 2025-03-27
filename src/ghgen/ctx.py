@@ -108,9 +108,9 @@ class _Context(ContextBase):
         )
         if w.on.workflow_call and w.on.workflow_call.outputs:
             unset_outputs = [
-                o
-                for o, info in w.on.workflow_call.outputs.items()
-                if info.value is None
+                o.id
+                for o in w.on.workflow_call.outputs
+                if o.id is not None and o.value is None
             ]
             self.check(
                 not unset_outputs,
@@ -260,8 +260,11 @@ class _InputUpdater(ProxyExpr):
         self._input = input
         self._trigger = trigger
 
-    def __call__(self, description: str | None = None) -> typing.Self:
-        return self.description(description)
+    def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
+        ret = self.description(description)
+        for k, v in kwargs.items():
+            getattr(ret, k)(v)
+        return ret
 
     @property
     def _triggers(self) -> tuple[WorkflowCall | WorkflowDispatch, ...]:
@@ -278,7 +281,7 @@ class _InputUpdater(ProxyExpr):
             if t is not None
         )
 
-    def _ensure_input(self) -> typing.Self:
+    def _ensure(self) -> typing.Self:
         if self._input:
             return self
         ret = type(self)(Input(), self._trigger)
@@ -304,35 +307,40 @@ class _InputUpdater(ProxyExpr):
             _ctx.error(e.args[0])
 
     def id(self, id: str) -> typing.Self:
-        if self._input is None:
-            self = self()
-        if self._input.id is not None:
-            _ctx.error(f"id was already specified for this input as `{self._input.id}`")
-        elif any(i.id == id for t in self._triggers if t is not None for i in t.inputs):
+        ret = self._ensure()
+        if ret._input.id is not None:
+            _ctx.error(f"id was already specified for this input as `{ret._input.id}`")
+        elif any(i.id == id for t in ret._triggers if t is not None for i in t.inputs):
             _ctx.error(f"id `{id}` was already specified for an input")
         else:
-            self._input.id = id
-        return self
+            _ctx.validate(id, target=ret._input, field="id")
+            ret._input.id = id
+        return ret
 
     def required(self, value: bool = True) -> typing.Self:
-        ret = self._ensure_input()
+        ret = self._ensure()
+        _ctx.validate(id, target=ret._input, field="required")
         ret._input.required = value
         return ret
 
     def default(self, value: typing.Any):
-        ret = self._ensure_input()
+        ret = self._ensure()
+        _ctx.validate(id, target=ret._input, field="default")
         ret._input.default = value
         ret._finalize()
         return ret
 
     def description(self, value: str | None) -> typing.Self:
-        ret = self._ensure_input()
+        ret = self._ensure()
         assert ret._input is not None
+        value = value and textwrap.dedent(value.strip("\n"))
+        _ctx.validate(value, target=ret._input, field="description")
         ret._input.description = value
         return ret
 
     def type(self, value: typing.Any) -> typing.Self:
-        ret = self._ensure_input()
+        ret = self._ensure()
+        _ctx.validate(id, target=ret._input, field="type")
         ret._input.type = value
         ret._finalize()
         return ret
@@ -352,13 +360,14 @@ class _InputUpdater(ProxyExpr):
                     "`options` must be given either a sequence of strings or string arguments"
                 )
                 return self
-        ret = self._ensure_input()
+        ret = self._ensure()
+        _ctx.validate(id, target=ret._input, field="options")
         ret._input.options = seq
         ret._finalize()
         return ret
 
     def ensure_id(self) -> str:
-        ret = self._ensure_input()
+        ret = self._ensure()
         if ret._input.id is None:
             id = _get_var_name(lambda v: v is ret)
             ret._input.id = _allocate_id(
@@ -387,10 +396,13 @@ class _SecretUpdater(ProxyExpr):
         self._secret = secret
         self._trigger = trigger
 
-    def __call__(self, description: str | None = None) -> typing.Self:
-        return self.description(description)
+    def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
+        ret = self.description(description)
+        for k, v in kwargs.items():
+            getattr(ret, k)(v)
+        return ret
 
-    def _ensure_secret(self) -> typing.Self:
+    def _ensure(self) -> typing.Self:
         if self._secret:
             return self
         ret = type(self)(Secret(), self._trigger)
@@ -400,35 +412,38 @@ class _SecretUpdater(ProxyExpr):
         return ret
 
     def id(self, id: str) -> typing.Self:
-        if self._secret is None:
-            self = self()
-        if self._secret.id is not None:
+        ret = self._ensure()
+        if ret._secret.id is not None:
             _ctx.error(
                 f"id was already specified for this secret as `{self._secret.id}`"
             )
-        elif any(s.id == id for s in self._trigger.secrets):
+        elif any(s.id == id for s in ret._trigger.secrets):
             _ctx.error(f"id `{id}` was already specified for a secret")
         else:
-            self._secret.id = id
+            _ctx.validate(id, target=ret._secret, field="id")
+            ret._secret.id = id
         return self
 
     def required(self, value: bool = True) -> typing.Self:
-        ret = self._ensure_secret()
+        ret = self._ensure()
+        _ctx.validate(value, target=ret._secret, field="required")
         ret._secret.required = value
         return ret
 
     def description(self, value: str | None) -> typing.Self:
-        ret = self._ensure_secret()
+        ret = self._ensure()
+        value = value and textwrap.dedent(value.strip("\n"))
+        _ctx.validate(value, target=ret._secret, field="description")
         ret._secret.description = value
         return ret
 
     def ensure_id(self) -> str:
-        ret = self._ensure_secret()
+        ret = self._ensure()
         if ret._secret.id is None:
             id = _get_var_name(lambda v: v is ret)
             ret._secret.id = _allocate_id(
                 id or "input",
-                lambda id: all(i.id != id for i in _ctx.current_workflow.secrets),
+                lambda id: all(i.id != id for i in ret._trigger.secrets),
                 start_from_one=id is None,
             )
         return ret._secret.id
@@ -438,6 +453,82 @@ class _SecretUpdater(ProxyExpr):
             return ~ErrorExpr("`secret` alone cannot be used in an expression")
         id = self.ensure_id()
         return getattr(Contexts.secrets, id)
+
+
+@dataclass
+class _OutputUpdater:
+    _output: Output | None = None
+    _trigger: WorkflowCall | None = None
+
+    def __init__(
+        self, output: Output | None = None, trigger: WorkflowCall | None = None
+    ):
+        super().__init__()
+        self._output = output
+        self._trigger = trigger
+
+    def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
+        ret = self.description(description)
+        for k, v in kwargs.items():
+            getattr(ret, k)(v)
+        return ret
+
+    def _ensure(self) -> typing.Self:
+        if self._output:
+            return self
+        output = Output()
+        ret = type(self)(output, self._trigger)
+        if self._trigger.outputs is None:
+            self._trigger.outputs = []
+        self._trigger.outputs.append(output)
+        return ret
+
+    def id(self, id: str) -> typing.Self:
+        ret = self._ensure()
+        if ret._output.id is not None:
+            _ctx.error(
+                f"id was already specified for this output as `{ret._output.id}`"
+            )
+        elif any(o.id == id for o in ret._trigger.outputs):
+            _ctx.error(f"id `{id}` was already specified for an output")
+        else:
+            _ctx.validate(id, target=ret._output, field="id")
+            ret._output.id = id
+        return ret
+
+    def required(self, value: bool = True) -> typing.Self:
+        ret = self._ensure()
+        _ctx.validate(id, target=ret._output, field="required")
+        ret._secret.required = value
+        return ret
+
+    def description(self, value: str | None) -> typing.Self:
+        ret = self._ensure()
+        value = value and textwrap.dedent(value.strip("\n"))
+        _ctx.validate(value, target=ret._output, field="description")
+        ret._output.description = value
+        return ret
+
+    def ensure_id(self) -> str:
+        ret = self._ensure()
+        if ret._output.id is None:
+            id = _get_var_name(lambda v: v is ret)
+            ret._output.id = _allocate_id(
+                id or "output",
+                lambda id: all(i.id != id for i in ret._trigger.outputs),
+                start_from_one=id is None,
+            )
+        return ret._output.id
+
+    def returns(self, value: Value):
+        ret = self._ensure()
+        ret.ensure_id()
+        match value:
+            case Expr() | str():
+                value = str(value).replace("\0needs", "\0jobs")
+        _ctx.validate(value, target=ret._output, field="value")
+        ret._output.value = value
+        return ret
 
 
 class _WorkflowUpdaters(_Updaters):
@@ -484,33 +575,10 @@ class _WorkflowUpdaters(_Updaters):
                 self()
                 return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
 
-            _outputs = _Updater(dict)
-
-            def output(
-                self,
-                value: Value | None = None,
-                description: str | None = None,
-                *,
-                id: str | None = None,
-            ):
-                description = description and textwrap.dedent(description.strip("\n"))
-                match value, id:
-                    case RefExpr(_segments=("needs", *rest)), _:
-                        return self.output(
-                            RefExpr("jobs", *rest), description=description, id=id
-                        )
-                    case (_, str() as id) | (
-                        RefExpr(_segments=(*_, id)),
-                        None,
-                    ):
-                        return self._outputs(
-                            ((id, Output(value=value, description=description)),)
-                        )
-                    case _:
-                        _ctx.error(
-                            f"unsupported unnamed output `{instantiate(value)}`, it either must be a context field or `id` must be provided"
-                        )
-                        return self
+            @property
+            def output(self) -> _OutputUpdater:
+                self()
+                return _OutputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
 
         workflow_call = WorkflowCallUpdater(WorkflowCall)
 
@@ -792,7 +860,7 @@ def _get_var_name(pred: typing.Callable[[object], bool]) -> str | None:
     return next((var for var, value in frame.f_locals.items() if pred(value)), None)
 
 
-def _ensure_step_id(s: Step) -> str:
+def _ensure_id(s: Step) -> str:
     if s.id is None:
         id = _get_var_name(lambda v: isinstance(v, _StepUpdater) and v._step is s)
         s.id = _allocate_id(
@@ -811,8 +879,11 @@ class _StepUpdater(ProxyExpr):
         super().__init__()
         self._step = step
 
-    def __call__(self, name: Value) -> typing.Self:
-        return self.name(name)
+    def __call__(self, name: Value | None = None, **kwargs) -> typing.Self:
+        ret = self.name(name)
+        for k, v in kwargs.items():
+            getattr(ret, k)(v)
+        return ret
 
     def _get_expr(self) -> Expr:
         if self._step is None:
@@ -820,7 +891,7 @@ class _StepUpdater(ProxyExpr):
         id = self.ensure_id()
         return getattr(Contexts.steps, id)
 
-    def _ensure_step(self) -> typing.Self:
+    def _ensure(self) -> typing.Self:
         if self._step is not None:
             return self
         step = Step()
@@ -837,13 +908,13 @@ class _StepUpdater(ProxyExpr):
         return ret
 
     def _ensure_run_step(self) -> typing.Self:
-        ret = self._ensure_step()
+        ret = self._ensure()
         if ret._step.uses or ret._step.with_:
             _ctx.error("cannot turn a `use` step into a `run` one")
         return ret
 
     def _ensure_use_step(self) -> typing.Self:
-        ret = self._ensure_step()
+        ret = self._ensure()
         if ret._step.run:
             _ctx.error("cannot turn a `run` step into a `use` one")
         else:
@@ -851,7 +922,7 @@ class _StepUpdater(ProxyExpr):
         return ret
 
     def id(self, id: str) -> typing.Self:
-        ret = self._ensure_step()
+        ret = self._ensure()
         if ret._step.id:
             _ctx.error(f"id was already specified for this step as `{ret._step.id}`")
         elif any(s.id == id for s in _ctx.current_job.steps):
@@ -861,13 +932,13 @@ class _StepUpdater(ProxyExpr):
         return ret
 
     def name(self, name: Value) -> typing.Self:
-        ret = self._ensure_step()
+        ret = self._ensure()
         _ctx.validate(name, target=ret._step, field="name")
         ret._step.name = name
         return ret
 
     def if_(self, condition: Value) -> typing.Self:
-        ret = self._ensure_step()
+        ret = self._ensure()
         _ctx.validate(condition, target=ret._step, field="if_")
         ret._step.if_ = condition
         return ret
@@ -879,8 +950,10 @@ class _StepUpdater(ProxyExpr):
         ret._step.env = (ret._step.env or {}) | value
         return ret
 
-    def run(self, code: Value):
+    def run(self, code: Value, **kwargs) -> typing.Self:
         ret = self._ensure_run_step()
+        for k, v in kwargs.items():
+            getattr(ret, k)(v)
         _ctx.validate(code, target=ret._step, field="run")
         if isinstance(code, str):
             code = textwrap.dedent(code.strip("\n"))
@@ -904,7 +977,7 @@ class _StepUpdater(ProxyExpr):
         return ret
 
     def continue_on_error(self, value: Value = True) -> typing.Self:
-        ret = self._ensure_step()
+        ret = self._ensure()
         _ctx.validate(value, target=ret._step, field="continue_on_error")
         ret._step.continue_on_error = value
         return ret
@@ -934,14 +1007,15 @@ class _StepUpdater(ProxyExpr):
             )
         return ret
 
-    def needs(self, *jobs: RefExpr) -> typing.Self:
+    def needs(self, *jobs: RefExpr | tuple[RefExpr, ...]) -> typing.Self:
+        jobs = tuple(j for s in jobs for j in ((s,) if isinstance(s, RefExpr) else s))
         jobs = needs(*jobs)
-        ret = self._ensure_step()
+        ret = self._ensure()
         ret._step.needs = jobs
         return ret
 
     def ensure_id(self) -> str:
-        return _ensure_step_id(self._ensure_step()._step)
+        return _ensure_id(self._ensure()._step)
 
 
 step = _StepUpdater()
@@ -950,7 +1024,7 @@ use = step.uses
 
 
 def _dump_step_outputs(s: Step):
-    id = _ensure_step_id(s)
+    id = _ensure_id(s)
     if s.outputs:
         outputs = getattr(steps, id).outputs
         _JobUpdaters.outputs((o, getattr(outputs, o)) for o in s.outputs)

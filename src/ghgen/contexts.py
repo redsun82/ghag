@@ -84,6 +84,7 @@ secrets = Contexts.secrets
 vars = Contexts.vars
 env = Contexts.env
 
+
 # we don't expose the following
 # needs: handled through job handles returned by @job
 # jobs: handled via `outputs` function
@@ -209,10 +210,13 @@ class ContextBase(threading.local, RuleSet):
 
     @rule(Contexts.jobs)
     def v(self, *, target: typing.Any = None, field: str | None = None):
-        return self.check(
-            isinstance(target, WorkflowCall) and field == "outputs",
-            "`jobs` is only allowed while declaring worfklow outputs in a workflow call trigger",
-        )
+        match target, field:
+            case (WorkflowCall(), "outputs") | (Output(), _):
+                pass
+            case _:
+                self.error(
+                    "`jobs` is only allowed while declaring worfklow outputs in a workflow call trigger",
+                )
 
     @rule(Contexts.jobs._)
     def v(self, id, **kwargs):

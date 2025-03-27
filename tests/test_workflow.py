@@ -873,11 +873,11 @@ on:
   workflow_call:
     outputs:
       one:
+        description: bla bla
         value: ${{ jobs.j1.outputs.one }}
-      three:
-        value: ${{ jobs.j2.outputs.three }}
       TWO:
-        value: ${{ jobs.j1.outputs.two }}
+        value: ${{ jobs.j2.result == 'success' && jobs.j1.outputs.two || jobs.j2.outputs.three
+          }}
 jobs:
   j1:
     outputs:
@@ -889,6 +889,9 @@ jobs:
 """
 )
 def test_jolly_workflow_outputs():
+    one = on.workflow_call.output("bla bla")
+    two = on.workflow_call.output(id="TWO")
+
     @job
     def j1():
         outputs(one=1, two=2)
@@ -897,56 +900,8 @@ def test_jolly_workflow_outputs():
     def j2():
         outputs(three=3)
 
-    on.workflow_call.output(j1.outputs.one).output(j2.outputs.three).output(
-        j1.outputs.two, id="TWO"
-    )
-
-
-@expect(
-    """
-# generated from test_workflow.py::test_singled_out_workflow_outputs
-on:
-  workflow_call:
-    outputs:
-      one:
-        description: |
-          This is the description of
-          output one
-        value: ${{ jobs.j1.outputs.one }}
-      three:
-        description: this is three
-        value: ${{ jobs.j2.outputs.three }}
-      TWO:
-        description: this is two
-        value: ${{ jobs.j1.outputs.two }}
-jobs:
-  j1:
-    outputs:
-      one: 1
-      two: 2
-  j2:
-    outputs:
-      three: 3
-"""
-)
-def test_singled_out_workflow_outputs():
-    @job
-    def j1():
-        outputs(one=1, two=2)
-
-    @job
-    def j2():
-        outputs(three=3)
-
-    on.workflow_call.output(
-        j1.outputs.one,
-        """
-        This is the description of
-        output one
-        """,
-    )
-    on.workflow_call.output(j2.outputs.three, description="this is three")
-    on.workflow_call.output(j1.outputs.two, id="TWO", description="this is two")
+    one.returns(j1.outputs.one)
+    two.returns((j2.result == "success") & j1.outputs.two | j2.outputs.three)
 
 
 @expect(
@@ -983,12 +938,12 @@ def test_needs():
 
     @job
     def j2():
-        run("").if_(j1)
+        run("", if_=j1)
 
     @job
     def j3():
-        step.needs(j1).run("")
-        step.needs(j1, j2).run("")
+        step(needs=j1, run="")
+        step(needs=(j1, j2), run="")
 
     @job
     def j4():
