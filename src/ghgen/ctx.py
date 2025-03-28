@@ -520,7 +520,7 @@ class _OutputUpdater:
             )
         return ret._output.id
 
-    def returns(self, value: Value):
+    def value(self, value: Value):
         ret = self._ensure()
         ret.ensure_id()
         match value:
@@ -989,23 +989,37 @@ class _StepUpdater(ProxyExpr):
         ret._step.with_ = (ret._step.with_ or {}) | value
         return ret
 
-    def returns(self, *args: str, **kwargs: Value) -> typing.Self:
-        ret = self._ensure_run_step()
-        outs = list(args)
-        outs.extend(a for a in kwargs if a not in args)
-        _ctx.validate(kwargs, target=ret._step, field="outputs")
-        ret._step.outputs = ret._step.outputs or []
-        ret._step.outputs += outs
-        # TODO: support other shells than bash
-        if kwargs:
-            # TODO: handle quoting?
-            out_code = "\n".join(
-                f"echo {k}={v} >> $GITHUB_OUTPUTS" for k, v in kwargs.items()
-            )
-            ret._step.run = (
-                f"{ret._step.run}\n{out_code}" if ret._step.run else out_code
-            )
-        return ret
+    class _StepOutputsUpdater(ProxyExpr):
+        _parent: "_StepUpdater"
+
+        def __init__(self, parent: "_StepUpdater"):
+            super().__init__()
+            self._parent = parent
+
+        def __call__(self, *args: str, **kwargs: Value) -> "_StepUpdater":
+            ret = self._parent._ensure_run_step()
+            outs = list(args)
+            outs.extend(a for a in kwargs if a not in args)
+            _ctx.validate(kwargs, target=ret._step, field="outputs")
+            ret._step.outputs = ret._step.outputs or []
+            ret._step.outputs += outs
+            # TODO: support other shells than bash
+            if kwargs:
+                # TODO: handle quoting?
+                out_code = "\n".join(
+                    f"echo {k}={v} >> $GITHUB_OUTPUTS" for k, v in kwargs.items()
+                )
+                ret._step.run = (
+                    f"{ret._step.run}\n{out_code}" if ret._step.run else out_code
+                )
+            return ret
+
+        def _get_expr(self) -> Expr:
+            return self._parent._get_expr().outputs
+
+    @property
+    def outputs(self) -> _StepOutputsUpdater:
+        return self._StepOutputsUpdater(self)
 
     def needs(self, *jobs: RefExpr | tuple[RefExpr, ...]) -> typing.Self:
         jobs = tuple(j for s in jobs for j in ((s,) if isinstance(s, RefExpr) else s))
@@ -1046,21 +1060,16 @@ def _dump_job_outputs(id: str, j: Job):
         )
 
 
-def outputs(*args: typing.Literal["*"] | RefExpr | _StepUpdater, **kwargs: typing.Any):
+def outputs(*args: RefExpr | _StepUpdater, **kwargs: typing.Any):
     for arg in args:
         match arg:
             case RefExpr(_segments=(*_, id)):
                 _JobUpdaters.outputs(((id, arg),))
             case _StepUpdater():
                 _dump_step_outputs(arg._step)
-            case str("*"):  # not "*" or it could make an `Expr` comparison
-                instance = _JobUpdaters.instance("outputs")
-                for s in instance.steps:
-                    if s.outputs:
-                        _dump_step_outputs(s)
             case _:
                 _ctx.error(
-                    f'unsupported unnamed output `{instantiate(arg)}`, must be `"*"`, a context field or a step'
+                    f"unsupported unnamed output `{instantiate(arg)}`, must be a context field or a step"
                 )
     if kwargs:
         _JobUpdaters.outputs(**{Element._key(k): a for k, a in kwargs.items()})

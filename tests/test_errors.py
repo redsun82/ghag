@@ -146,7 +146,7 @@ def test_wrong_outputs(error):
 
     @job
     def j2():
-        x = step("x").returns("foo")
+        x = step("x").outputs("foo")
         y = step("y")
         error(
             "step `y` passed to `outputs`, but no outputs were declared on it. Use `returns()` to do so"
@@ -155,17 +155,15 @@ def test_wrong_outputs(error):
 
     @job
     def j3():
-        error(
-            'unsupported unnamed output `42`, must be `"*"`, a context field or a step'
-        )
+        error("unsupported unnamed output `42`, must be a context field or a step")
         outputs(42)
 
     @job
     def j4():
-        step.id("x").returns("foo")
-        step.id("y").returns("bar")
+        step.id("x").outputs("foo")
+        step.id("y").outputs("bar")
         error(
-            'unsupported unnamed output `${{ steps.x && steps.y }}`, must be `"*"`, a context field or a step'
+            "unsupported unnamed output `${{ steps.x && steps.y }}`, must be a context field or a step"
         )
         outputs(steps.x & steps.y)
 
@@ -173,7 +171,7 @@ def test_wrong_outputs(error):
 @expect_errors
 def test_undeclared_step_output(error):
     on.workflow_dispatch()
-    x = step("step1").returns("foo")
+    x = step("step1").outputs("foo")
     error("`bar` was not declared in step `x`, use `returns()` declare it")
     step("step2").run(x.outputs.bar)
 
@@ -386,7 +384,7 @@ def test_all_outputs_set(error):
     @workflow
     def w():
         on.workflow_call.output(id="one")
-        on.workflow_call.output(id="two").returns(2)
+        on.workflow_call.output(id="two", value=2)
         on.workflow_call.output(id="three")
         step("")
 

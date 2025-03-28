@@ -668,7 +668,7 @@ def test_id():
     on.workflow_dispatch()
     x = step.id("one").run("one")
     y = step.run("two")
-    yy = step.run("two prime").returns("a")
+    yy = step.run("two prime").outputs("a")
     z = step.id("y").run("three")
 
     step("use x").run(x.outputs)
@@ -788,22 +788,6 @@ jobs:
     - id: y
       name: y
       run: echo three=c >> $GITHUB_OUTPUTS
-  j3:
-    runs-on: ubuntu-latest
-    outputs:
-      one: ${{ steps.step-2.outputs.one }}
-      two: ${{ steps.step-1.outputs.two }}
-      a: ${{ matrix.a }}
-    strategy:
-      matrix:
-        a: [1, 2, 3]
-    steps:
-    - id: step-1
-      run: |
-        echo one=a >> $GITHUB_OUTPUTS
-        echo two=b >> $GITHUB_OUTPUTS
-    - id: step-2
-      run: echo one=c >> $GITHUB_OUTPUTS
 """
 )
 def test_implicit_job_outputs():
@@ -811,22 +795,15 @@ def test_implicit_job_outputs():
 
     @job
     def j1():
-        x = step("x").returns(one="a", two="b")
+        x = step("x").outputs(one="a", two="b")
         outputs(x)
 
     @job
     def j2():
         strategy.matrix(a=[1, 2, 3])
-        x = step("x").returns(one="a", two="b")
-        y = step("y").returns(three="c")
+        x = step("x").outputs(one="a", two="b")
+        y = step("y").outputs(three="c")
         outputs(x, y, matrix.a)
-
-    @job
-    def j3():
-        strategy.matrix(a=[1, 2, 3])
-        step.returns(one="a", two="b")
-        step.returns(one="c")
-        outputs("*", matrix.a)
 
 
 @expect(
@@ -861,14 +838,14 @@ def test_explicit_job_outputs():
     @job
     def j():
         strategy.matrix(a=[1, 2, 3])
-        x = step("x").returns(one="a", two="b")
-        y = step("y").returns(three="c")
+        x = step("x").outputs(one="a", two="b")
+        y = step("y").outputs(three="c")
         outputs(foo=x.outputs.one, bar=y.outputs.three, baz=matrix.a)
 
 
 @expect(
     """
-# generated from test_workflow.py::test_jolly_workflow_outputs
+# generated from test_workflow.py::test_workflow_outputs
 on:
   workflow_call:
     outputs:
@@ -888,7 +865,7 @@ jobs:
       three: 3
 """
 )
-def test_jolly_workflow_outputs():
+def test_workflow_outputs():
     one = on.workflow_call.output("bla bla")
     two = on.workflow_call.output(id="TWO")
 
@@ -900,8 +877,8 @@ def test_jolly_workflow_outputs():
     def j2():
         outputs(three=3)
 
-    one.returns(j1.outputs.one)
-    two.returns((j2.result == "success") & j1.outputs.two | j2.outputs.three)
+    one.value(j1.outputs.one)
+    two.value((j2.result == "success") & j1.outputs.two | j2.outputs.three)
 
 
 @expect(
