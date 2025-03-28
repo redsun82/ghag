@@ -8,14 +8,12 @@ from src.ghgen.ctx import *
 
 @expect_errors
 def test_wrong_types(error):
-    on.pull_request(branches=["main"])
-    error("cannot assign `str` to `branches`")
-    on.pull_request(branches="dev")
-    error("illegal assignment to `env` ('int' object is not iterable)")
+    on.workflow_dispatch()
+    error("illegal assignment to`env`: 'int' object is not iterable")
     env(3)
     env(FOO="bar")
     error(
-        "illegal assignment to `env` (dictionary update sequence element #0 has length 4; 2 is required)"
+        "illegal assignment to`env`: dictionary update sequence element #0 has length 4; 2 is required"
     )
     env(["nope"])
     run("")
@@ -93,7 +91,7 @@ def test_workflow_fields_in_job(error):
     def a_job():
         name("a name")
 
-        error("`on` is a workflow field, it cannot be set in job `a_job`")
+        error("`on.workflow_dispatch must be used in a workflow")
         on.workflow_dispatch()
 
 
@@ -102,9 +100,7 @@ def test_workflow_fields_in_auto_job(error):
     on.workflow_dispatch()
     runs_on("x")
 
-    error(
-        "`on` is a workflow field, and an implicit job was created when setting `runs_on`"
-    )
+    error("`on.workflow_dispatch must be used in a workflow")
     on.workflow_dispatch()
 
 
@@ -399,9 +395,9 @@ def test_all_outputs_set(error):
 def test_any_context_in_wrong_place(error):
     error("no contextual information can be used in `name`")
     name(vars.NAME)
-    error("no contextual information can be used in `pull_request`")
+    error("no contextual information can be used in `branches`")
     on.pull_request(branches=[vars.BRANCH])
-    error("no contextual information can be used in `push`")
+    error("no contextual information can be used in `paths`")
     on.push(paths=[f"./{vars.PATH}"])
 
     run("")

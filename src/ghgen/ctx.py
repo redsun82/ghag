@@ -1,8 +1,11 @@
+import collections.abc
 import contextlib
 import dataclasses
+import enum
 import inspect
 import itertools
 import textwrap
+import types
 import typing
 from dataclasses import dataclass, fields, asdict
 import pathlib
@@ -167,6 +170,157 @@ class _Context(ContextBase):
                 f"`{reason}` is a `job` field, but implicit job cannot be created because there are already jobs in the workflow",
             )
         return job
+
+
+type _Path = tuple[str | int, ...]
+
+
+def _type(path: _Path) -> type | None:
+    t = Workflow
+    for p in path:
+        o = typing.get_origin(t)
+        match p:
+            case str() if issubclass(o or t, Element):
+                f = next((f for f in fields(o or t) if f.name == p), None)
+                assert f is not None, f"no `{p}` field in `{t.__name__}`"
+                t = f.type
+                if typing.get_origin(t) is types.UnionType:
+                    t = typing.get_args(t)[0]
+            case str() if o is dict:
+                t = typing.get_args(t)[1]
+            case int() if o is list and p >= 0:
+                t = typing.get_args(t)[0]
+            case _:
+                assert False, f"unexpected access by `{p!r}` in `{t}`"
+        if t is Value:
+            t = str
+    return t
+
+
+def _ensure_element(start: Workflow | Job, path: tuple[str | int, ...]) -> typing.Any:
+    assert start
+    e = start
+    t = type(e)
+    for p in path:
+        match e, p:
+            case _, str() if issubclass(t, Element):
+                f = next((f for f in fields(t) if f.name == p), None)
+                assert f is not None, f"no `{p}` field in `{t.__name__}`"
+                t = f.type
+                if typing.get_origin(t) is types.UnionType:
+                    t = typing.get_args(t)[0]
+                next_e = getattr(e, p)
+                if next_e is None:
+                    next_e = t()
+                    setattr(e, p, next_e)
+                e = next_e
+            case list(), int() if p >= 0:
+                t = typing.get_args(t)[0]
+                e.extend([t() for _ in range(len(e), p + 1)])
+                e = e[p]
+            case dict(), str():
+                t = typing.get_args(t)[1]
+                e = e.setdefault(p, t())
+            case _:
+                assert False, f"unexpected access by `{p!r}` in `{t}`"
+    return e
+
+
+def _get_workflow(path: tuple[str | int, ...]) -> Workflow:
+    if _ctx.current_workflow is None or _ctx.current_job is not None:
+        _ctx.error(f"`{".".join(path)} must be used in a workflow")
+        return Workflow()
+    return _ctx.current_workflow
+
+
+def _get_job(path: tuple[str | int, ...]) -> Job:
+    if _ctx.current_job is None:
+        path = ".".join(path)
+        if _ctx.current_workflow:
+            return _ctx.auto_job(path)
+        _ctx.error(f"`{path}` must be used in a job")
+        return Job()
+    return _ctx.current_job
+
+
+def _get_job_or_workflow(path: tuple[str | int, ...]) -> Workflow | Job:
+    ret = _ctx.current_job or _ctx.current_workflow
+    if ret is None:
+        _ctx.error(f"`{".".join(path)}` must be used in a workflow or a job")
+        return Workflow()
+    return ret
+
+
+def _update_element(
+    value: typing.Any,
+    start: typing.Callable[[tuple[str | int, ...]], typing.Any],
+    *path: str | int,
+):
+    prefix, field = path[:-1], path[-1]
+    start = start(path)
+    parent = _ensure_element(start, prefix)
+    _ctx.validate(value, target=parent, field=field)
+    old_value = getattr(parent, field)
+    new_value = _merge(".".join(map(str, path)), old_value, value)
+    if new_value is not None:
+        setattr(parent, field, new_value)
+
+
+@dataclasses.dataclass
+class _NewUpdater:
+    _start: typing.Callable[[tuple[str | int, ...]], typing.Any]
+    _path: tuple[str | int, ...]
+
+    def _update[T](
+        self,
+        field: str | int,
+        ty: typing.Callable[[str, T], typing.Any],
+        value: T,
+    ) -> typing.Self:
+        ret = self._ensure()
+        value = ty(field, value)
+        _update_element(value, ret._start, *ret._path, field)
+        return ret
+
+    def _ensure(self) -> typing.Self:
+        _ensure_element(self._start(self._path), self._path)
+        return self
+
+    def _sub_updater[T](self, ty: type[T], field: str) -> T:
+        return ty(self._start, self._path + (field,))
+
+
+def _seq(
+    field: str, args: tuple[Value | typing.Iterable[str] | None, ...]
+) -> list[Value] | None:
+    if not args or args == (None,):
+        return None
+    ret = []
+    for arg in args:
+        match arg:
+            case str() | bool() | int() | float() | Expr():
+                ret.append(arg)
+            case collections.abc.Iterable():
+                ret.extend(arg)
+            case _:
+                _ctx.error(f"`{field}` cannot accept element `{arg}`")
+    return ret
+
+
+def _map(
+    field: str,
+    args: tuple[
+        dict[str, Value] | typing.Iterable[tuple[Value, Value]] | None, dict[str, Value]
+    ],
+) -> dict[str, Value] | None:
+    arg, kwargs = args
+    if arg is None:
+        return kwargs
+    try:
+        return dict(arg, **kwargs)
+    except (TypeError, ValueError) as e:
+        _ctx.error(f"illegal assignment to`{field}`: {e}")
+        return None
 
 
 class _Updaters:
@@ -531,58 +685,113 @@ class _OutputUpdater:
         return ret
 
 
-class _WorkflowUpdaters(_Updaters):
-    @classmethod
-    def instance(cls, reason: str):
-        if _ctx.auto_job_reason:
-            _ctx.error(
-                f"`{reason}` is a workflow field, and an implicit job was created when setting `{_ctx.auto_job_reason}`"
-            )
-            return None
-        if _ctx.current_job:
-            _ctx.error(
-                f"`{reason}` is a workflow field, it cannot be set in job `{_ctx.current_job_id}`"
-            )
-            return None
-        if not _ctx.current_workflow:
-            _ctx.error(
-                f"`{reason}` can only be set in a workflow. Did you forget a `@workflow` decoration?"
-            )
-            return None
-        return _ctx.current_workflow
+class _OnUpdater(_NewUpdater):
+    class PullRequestOrPush(_NewUpdater):
+        def branches(self, *branches: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("branches", _seq, branches)
 
-    class OnUpdater(_Updater):
-        input = _InputUpdater()
-        pull_request = _Updater(PullRequest)
-        push = _Updater(Push)
+        def ignore_branches(self, *branches: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("ignore_branches", _seq, branches)
 
-        class WorkflowDispatchUpdater(_Updater):
-            @property
-            def input(self) -> _InputUpdater:
-                self()
-                return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_dispatch)
+        def paths(self, *paths: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("paths", _seq, paths)
 
-        workflow_dispatch = WorkflowDispatchUpdater(WorkflowDispatch)
+        def ignore_paths(self, *paths: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("ignore_paths", _seq, paths)
 
-        class WorkflowCallUpdater(_Updater):
-            @property
-            def secret(self) -> _SecretUpdater:
-                self()
-                return _SecretUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+    class PullRequest(PullRequestOrPush):
+        def types(self, *types: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("types", _seq, types)
 
-            @property
-            def input(self) -> _InputUpdater:
-                self()
-                return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+        def __call__(
+            self,
+            *,
+            branches: typing.Iterable[str] | None = None,
+            ignore_branches: typing.Iterable[str] | None = None,
+            paths: typing.Iterable[str] | None = None,
+            ignore_paths: typing.Iterable[str] | None = None,
+            types: typing.Iterable[str] | None = None,
+        ) -> "_OnUpdater":
+            self.branches(branches).ignore_branches(ignore_branches).paths(
+                paths
+            ).ignore_paths(ignore_paths).types(types)
+            return on
 
-            @property
-            def output(self) -> _OutputUpdater:
-                self()
-                return _OutputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+    class Push(PullRequestOrPush):
+        def tags(self, *tags: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("tags", _seq, tags)
 
-        workflow_call = WorkflowCallUpdater(WorkflowCall)
+        def ignore_tags(self, *tags: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("ignore_tags", _seq, tags)
 
-    on = OnUpdater(On)
+        def __call__(
+            self,
+            *,
+            branches: typing.Iterable[str] | None = None,
+            ignore_branches: typing.Iterable[str] | None = None,
+            paths: typing.Iterable[str] | None = None,
+            ignore_paths: typing.Iterable[str] | None = None,
+            tags: typing.Iterable[str] | None = None,
+            ignore_tags: typing.Iterable[str] | None = None,
+        ) -> "_OnUpdater":
+            self.branches(branches).ignore_branches(ignore_branches).paths(
+                paths
+            ).ignore_paths(ignore_paths).tags(tags).ignore_tags(ignore_tags)
+            return on
+
+    class WorkflowDispatch(_NewUpdater):
+        @property
+        def input(self) -> _InputUpdater:
+            self._ensure()
+            return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_dispatch)
+
+        def __call__(self) -> "_OnUpdater":
+            self._ensure()
+            return on
+
+    class WorkflowCall(WorkflowDispatch):
+        @property
+        def secret(self) -> _SecretUpdater:
+            self._ensure()
+            return _SecretUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+
+        @property
+        def output(self) -> _OutputUpdater:
+            self._ensure()
+            return _OutputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+
+    input = _InputUpdater()
+
+    @property
+    def pull_request(self) -> PullRequest:
+        return self._sub_updater(self.PullRequest, "pull_request")
+
+    @property
+    def push(self):
+        return self._sub_updater(self.Push, "push")
+
+    @property
+    def workflow_dispatch(self) -> WorkflowDispatch:
+        return self._sub_updater(self.WorkflowDispatch, "workflow_dispatch")
+
+    @property
+    def workflow_call(self) -> WorkflowCall:
+        return self._sub_updater(self.WorkflowCall, "workflow_call")
+
+
+on = _OnUpdater(_get_workflow, ("on",))
+
+
+def name(name: str):
+    _update_element(name, _get_job_or_workflow, "name")
+
+
+def env(mapping=None, /, **kwargs):
+    _update_element(
+        _map("env", (mapping, kwargs)),
+        _get_job_or_workflow,
+        "env",
+    )
 
 
 class _WorkflowOrJobUpdaters(_Updaters):
@@ -595,8 +804,8 @@ class _WorkflowOrJobUpdaters(_Updaters):
             return None
         return _ctx.current_job or _ctx.current_workflow
 
-    name = _Updater(str)
-    env = _Updater(dict)
+    # name = _Updater(str)
+    # env = _Updater(dict)
 
 
 class _JobUpdaters(_Updaters):
@@ -744,9 +953,6 @@ class _Job(ProxyExpr):
 
 
 job = _Job()
-name = _WorkflowOrJobUpdaters.name
-on = _WorkflowUpdaters.on
-env = _WorkflowOrJobUpdaters.env
 
 
 def runs_on(runner: Value):
