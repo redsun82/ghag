@@ -114,6 +114,22 @@ def test_context_using_dashes():
     assert instantiate(my_x.my_foo) == "${{ my_x.my-foo }}"
 
 
+def test_context_any():
+    @contexts
+    class Contexts:
+        class X(RefExpr):
+            a: typing.Any
+
+        x: X
+
+    x = Contexts.x
+
+    assert instantiate(x.a) == "${{ x.a }}"
+    assert instantiate(x.a.foo) == "${{ x.a.foo }}"
+    assert instantiate(x.a.foo.bar) == "${{ x.a.foo.bar }}"
+    assert instantiate(x.a.foo._.bar) == "${{ x.a.foo.*.bar }}"
+
+
 def test_nested_context():
     @contexts
     class Contexts:

@@ -209,6 +209,12 @@ def contexts[T](cls: type[T]) -> type[T]:
             process(ret, a)
             return ret
 
+        if annotation is typing.Any:
+            object.__setattr__(
+                ref, "_child_factory", functools.partial(child_factory, a=typing.Any)
+            )
+            return
+
         for f, a in annotation.__annotations__.items():
             # for mappings we use a `Map` annotation to `__getattr__` which will be picked up by some type checkers
             # (notably pylance in VSCode, while PyCharm doesn't seem to pick that up yet)

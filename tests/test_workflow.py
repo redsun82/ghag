@@ -1083,3 +1083,30 @@ def test_call():
     @job
     def j2():
         call("foo", arg_1="foo", arg__2="bar")
+
+
+@expect(
+    """
+# generated from test_workflow.py::test_github_context
+on:
+  workflow_dispatch: {}
+jobs:
+  test_github_context:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        echo ${{ github.actor }}
+        echo ${{ github.workspace }}
+        echo ${{ github.event.sender }}
+"""
+)
+def test_github_context():
+    on.workflow_dispatch()
+
+    run(
+        f"""
+        echo {github.actor}
+        echo {github.workspace}
+        echo {github.event.sender}
+    """
+    )

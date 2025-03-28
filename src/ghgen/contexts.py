@@ -76,6 +76,49 @@ class Contexts:
     vars: FlatMap
     env: FlatMap
 
+    class Github(RefExpr):
+        action: RefExpr
+        # action_path: RefExpr
+        action_ref: RefExpr
+        action_repository: RefExpr
+        # action_status: RefExpr
+        actor: RefExpr
+        actor_id: RefExpr
+        api_url: RefExpr
+        base_ref: RefExpr
+        env: RefExpr
+        event: typing.Any
+        event_name: RefExpr
+        event_path: RefExpr
+        graphql_url: RefExpr
+        head_ref: RefExpr
+        job: RefExpr
+        path: RefExpr
+        ref: RefExpr
+        ref_name: RefExpr
+        ref_protected: RefExpr
+        ref_type: RefExpr
+        repository: RefExpr
+        repository_id: RefExpr
+        repository_owner: RefExpr
+        repository_owner_id: RefExpr
+        repositoryUrl: RefExpr
+        retention_days: RefExpr
+        run_id: RefExpr
+        run_number: RefExpr
+        run_attempt: RefExpr
+        secret_source: RefExpr
+        server_url: RefExpr
+        sha: RefExpr
+        token: RefExpr
+        triggering_actor: RefExpr
+        workflow: RefExpr
+        workflow_ref: RefExpr
+        workflow_sha: RefExpr
+        workspace: RefExpr
+
+    github: Github
+
 
 steps = Contexts.steps
 matrix = Contexts.matrix
@@ -83,7 +126,7 @@ runner = Contexts.runner
 secrets = Contexts.secrets
 vars = Contexts.vars
 env = Contexts.env
-
+github = Contexts.github
 
 # we don't expose the following
 # needs: handled through job handles returned by @job
