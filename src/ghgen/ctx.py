@@ -398,8 +398,8 @@ class _SecretUpdater(ProxyExpr):
 
     def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
         ret = self.description(description)
-        for k, v in kwargs.items():
-            getattr(ret, k)(v)
+        for k, a in kwargs.items():
+            getattr(ret, k)(a)
         return ret
 
     def _ensure(self) -> typing.Self:

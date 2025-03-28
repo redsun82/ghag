@@ -498,7 +498,7 @@ jobs:
 """
 )
 def test_workflow_call():
-    token = on.workflow_call.secret().required()
+    token = on.workflow_call.secret(required=True)
     auth = on.workflow_call.secret("auth if provided")
     foo = on.workflow_call.input.required()
     bar = on.workflow_call.input.type("boolean")
