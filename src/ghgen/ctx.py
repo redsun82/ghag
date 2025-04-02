@@ -338,10 +338,12 @@ class _IdElementUpdater[T](_NewUpdater[T]):
         _ = ret._element
         return ret
 
-    def id(self, id: str) -> typing.Self:
+    def id(self, id: str | None) -> typing.Self:
         ret = self._ensure()
         el = ret._element
-        if el.id is not None:
+        if id is None:
+            ret._update("id", _value, None)
+        elif el.id is not None:
             _ctx.error(f"id was already specified for this element as `{el.id}`")
         elif any(s.id == id for s in ret._parent):
             parent_path = ".".join(map(str, ret._path[:-1]))
@@ -398,11 +400,11 @@ def _map(
         return None
 
 
-def _value(field: str, value: Value) -> Value:
+def _value(field: str, value: Value | None) -> Value | None:
     return value
 
 
-def _text(field: str, value: Value) -> Value:
+def _text(field: str, value: Value | None) -> Value | None:
     if isinstance(value, str):
         value = textwrap.dedent(value.strip("\n"))
     return value
@@ -623,82 +625,6 @@ class _InputUpdater(ProxyExpr):
         return getattr(Contexts.inputs, id)
 
 
-@dataclass
-class _OutputUpdater:
-    _output: Output | None = None
-    _trigger: WorkflowCall | None = None
-
-    def __init__(
-        self, output: Output | None = None, trigger: WorkflowCall | None = None
-    ):
-        super().__init__()
-        self._output = output
-        self._trigger = trigger
-
-    def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
-        ret = self.description(description)
-        for k, v in kwargs.items():
-            getattr(ret, k)(v)
-        return ret
-
-    def _ensure(self) -> typing.Self:
-        if self._output:
-            return self
-        output = Output()
-        ret = type(self)(output, self._trigger)
-        if self._trigger.outputs is None:
-            self._trigger.outputs = []
-        self._trigger.outputs.append(output)
-        return ret
-
-    def id(self, id: str) -> typing.Self:
-        ret = self._ensure()
-        if ret._output.id is not None:
-            _ctx.error(
-                f"id was already specified for this output as `{ret._output.id}`"
-            )
-        elif any(o.id == id for o in ret._trigger.outputs):
-            _ctx.error(f"id `{id}` was already specified for an output")
-        else:
-            _ctx.validate(id, target=ret._output, field="id")
-            ret._output.id = id
-        return ret
-
-    def required(self, value: bool = True) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(id, target=ret._output, field="required")
-        ret._secret.required = value
-        return ret
-
-    def description(self, value: str | None) -> typing.Self:
-        ret = self._ensure()
-        value = value and textwrap.dedent(value.strip("\n"))
-        _ctx.validate(value, target=ret._output, field="description")
-        ret._output.description = value
-        return ret
-
-    def ensure_id(self) -> str:
-        ret = self._ensure()
-        if ret._output.id is None:
-            id = _get_var_name(lambda v: v is ret)
-            ret._output.id = _allocate_id(
-                id or "output",
-                lambda id: all(i.id != id for i in ret._trigger.outputs),
-                start_from_one=id is None,
-            )
-        return ret._output.id
-
-    def value(self, value: Value):
-        ret = self._ensure()
-        ret.ensure_id()
-        match value:
-            case Expr() | str():
-                value = str(value).replace("\0needs", "\0jobs")
-        _ctx.validate(value, target=ret._output, field="value")
-        ret._output.value = value
-        return ret
-
-
 class _OnUpdater(_NewUpdater):
     class _PullRequestOrPush(_NewUpdater):
         def branches(self, *branches: str | typing.Iterable[str]) -> typing.Self:
@@ -771,9 +697,13 @@ class _OnUpdater(_NewUpdater):
                 _IdElementUpdater.__init__(self, *args)
 
             def __call__(
-                self, description: str | None = None, *, required: bool | None = None
+                self,
+                description: str | None = None,
+                *,
+                id: str | None = None,
+                required: bool | None = None,
             ) -> typing.Self:
-                return self.description(description).required(required)
+                return self.description(description).required(required).id(id)
 
             def required(self, value: bool = True) -> typing.Self:
                 return self._update("required", _value, value)
@@ -787,14 +717,36 @@ class _OnUpdater(_NewUpdater):
                 id = self.ensure_id()
                 return getattr(Contexts.secrets, id)
 
+        @dataclass
+        class _Output(_IdElementUpdater[Output]):
+            def __call__(
+                self,
+                description: str | None = None,
+                *,
+                id: str | None = None,
+                value: Value | None = None,
+            ) -> typing.Self:
+                return self.description(description).id(id).value(value)
+
+            def description(self, value: str | None) -> typing.Self:
+                return self._update("description", _text, value)
+
+            def value(self, value: Value | None):
+                ret = self._ensure()
+                if value is not None:
+                    ret.ensure_id()
+                match value:
+                    case Expr() | str():
+                        value = str(value).replace("\0needs", "\0jobs")
+                return ret._update("value", _value, value)
+
         @property
         def secret(self) -> _Secret:
             return self._sub_updater(self._Secret, "secrets", "*")
 
         @property
-        def output(self) -> _OutputUpdater:
-            self._ensure()
-            return _OutputUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+        def output(self) -> _Output:
+            return self._sub_updater(self._Output, "outputs", "*")
 
     input = _InputUpdater()
 
