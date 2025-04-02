@@ -91,7 +91,7 @@ def test_workflow_fields_in_job(error):
     def a_job():
         name("a name")
 
-        error("`on.workflow_dispatch must be used in a workflow")
+        error("`on.workflow_dispatch` must be used in a workflow")
         on.workflow_dispatch()
 
 
@@ -100,7 +100,7 @@ def test_workflow_fields_in_auto_job(error):
     on.workflow_dispatch()
     runs_on("x")
 
-    error("`on.workflow_dispatch must be used in a workflow")
+    error("`on.workflow_dispatch` must be used in a workflow")
     on.workflow_dispatch()
 
 

@@ -226,16 +226,17 @@ def _ensure_element(start: Workflow | Job, path: tuple[str | int, ...]) -> typin
     return e
 
 
-def _get_workflow(path: tuple[str | int, ...]) -> Workflow:
+def _get_workflow(path: str) -> Workflow:
+    if not isinstance(path, str):
+        raise ValueError("PROUT")
     if _ctx.current_workflow is None or _ctx.current_job is not None:
-        _ctx.error(f"`{".".join(path)} must be used in a workflow")
+        _ctx.error(f"`{path}` must be used in a workflow")
         return Workflow()
     return _ctx.current_workflow
 
 
-def _get_job(path: tuple[str | int, ...]) -> Job:
+def _get_job(path: str) -> Job:
     if _ctx.current_job is None:
-        path = ".".join(path)
         if _ctx.current_workflow:
             return _ctx.auto_job(path)
         _ctx.error(f"`{path}` must be used in a job")
@@ -243,21 +244,20 @@ def _get_job(path: tuple[str | int, ...]) -> Job:
     return _ctx.current_job
 
 
-def _get_job_or_workflow(path: tuple[str | int, ...]) -> Workflow | Job:
+def _get_job_or_workflow(path: str) -> Workflow | Job:
     ret = _ctx.current_job or _ctx.current_workflow
     if ret is None:
-        _ctx.error(f"`{".".join(path)}` must be used in a workflow or a job")
+        _ctx.error(f"`{path}` must be used in a workflow or a job")
         return Workflow()
     return ret
 
 
 def _update_element(
     value: typing.Any,
-    start: typing.Callable[[tuple[str | int, ...]], typing.Any],
+    start: typing.Any,
     *path: str | int,
 ):
     prefix, field = path[:-1], path[-1]
-    start = start(path)
     parent = _ensure_element(start, prefix)
     _ctx.validate(value, target=parent, field=field)
     old_value = getattr(parent, field)
@@ -267,27 +267,102 @@ def _update_element(
 
 
 @dataclasses.dataclass
-class _NewUpdater:
-    _start: typing.Callable[[tuple[str | int, ...]], typing.Any]
+class _NewUpdater[T]:
+    _start: typing.Callable[[str], typing.Any]
     _path: tuple[str | int, ...]
+    _cached_element: T | None = None
+    _cached_parent: typing.Any = None
 
-    def _update[T](
+    @property
+    def _log_path(self) -> str:
+        return ".".join(map(str, self._path))
+
+    @property
+    def _element(self) -> T:
+        if self._cached_element is None:
+            _ = self._parent
+            self._cached_element = _ensure_element(
+                self._start(self._log_path), self._path
+            )
+        return self._cached_element
+
+    @property
+    def _parent(self) -> typing.Any:
+        if self._cached_parent is None:
+            self._cached_parent = _ensure_element(
+                self._start(self._log_path), self._path[:-1]
+            )
+        return self._cached_parent
+
+    def _update[U](
         self,
         field: str | int,
-        ty: typing.Callable[[str, T], typing.Any],
-        value: T,
+        ty: typing.Callable[[str, U], typing.Any],
+        value: U,
     ) -> typing.Self:
         ret = self._ensure()
         value = ty(field, value)
-        _update_element(value, ret._start, *ret._path, field)
+        el = ret._element
+        _ctx.validate(value, target=el, field=field)
+        old_value = getattr(el, field)
+        new_value = _merge(field, old_value, value)
+        if new_value is not None:
+            setattr(el, field, new_value)
         return ret
 
     def _ensure(self) -> typing.Self:
-        _ensure_element(self._start(self._path), self._path)
+        start = self._start(self._log_path)
+        _ensure_element(start, self._path)
         return self
 
-    def _sub_updater[T](self, ty: type[T], field: str) -> T:
-        return ty(self._start, self._path + (field,))
+    def _sub_updater[U](self, ty: type[U], *fields: str) -> T:
+        return ty(self._start, self._path + fields)
+
+
+@dataclasses.dataclass
+class _IdElementUpdater[T](_NewUpdater[T]):
+    @property
+    def _log_path(self) -> str:
+        return ".".join(map(str, self._path[:-1]))[:-1]
+
+    @property
+    def _instantiated(self) -> bool:
+        return self._cached_element is not None
+
+    def _ensure(self) -> typing.Self:
+        if self._instantiated:
+            return self
+        parent_list = self._parent
+        assert isinstance(parent_list, list)
+        ret = type(self)(self._start, self._path[:-1] + (len(parent_list),))
+        _ = ret._element
+        return ret
+
+    def id(self, id: str) -> typing.Self:
+        ret = self._ensure()
+        el = ret._element
+        if el.id is not None:
+            _ctx.error(f"id was already specified for this element as `{el.id}`")
+        elif any(s.id == id for s in ret._parent):
+            parent_path = ".".join(map(str, ret._path[:-1]))
+            _ctx.error(f"id `{id}` already used in `{parent_path}`")
+        else:
+            ret._update("id", _value, id)
+        return ret
+
+    def ensure_id(self) -> str:
+        ret = self._ensure()
+        el = ret._element
+        if el.id is None:
+            id = _get_var_name(lambda v: v is ret)
+            parent = ret._parent
+            el.id = _allocate_id(
+                # remove `s` from name of parent list to get default name
+                id or ret._path[-2][:-1],
+                lambda id: all(i.id != id for i in parent),
+                start_from_one=id is None,
+            )
+        return el.id
 
 
 def _seq(
@@ -321,6 +396,16 @@ def _map(
     except (TypeError, ValueError) as e:
         _ctx.error(f"illegal assignment to`{field}`: {e}")
         return None
+
+
+def _value(field: str, value: Value) -> Value:
+    return value
+
+
+def _text(field: str, value: Value) -> Value:
+    if isinstance(value, str):
+        value = textwrap.dedent(value.strip("\n"))
+    return value
 
 
 class _Updaters:
@@ -539,77 +624,6 @@ class _InputUpdater(ProxyExpr):
 
 
 @dataclass
-class _SecretUpdater(ProxyExpr):
-    _secret: Secret | None = None
-    _trigger: WorkflowCall | None = None
-
-    def __init__(
-        self, secret: Secret | None = None, trigger: WorkflowCall | None = None
-    ):
-        super().__init__()
-        self._secret = secret
-        self._trigger = trigger
-
-    def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
-        ret = self.description(description)
-        for k, a in kwargs.items():
-            getattr(ret, k)(a)
-        return ret
-
-    def _ensure(self) -> typing.Self:
-        if self._secret:
-            return self
-        ret = type(self)(Secret(), self._trigger)
-        if self._trigger.secrets is None:
-            self._trigger.secrets = []
-        self._trigger.secrets.append(ret._secret)
-        return ret
-
-    def id(self, id: str) -> typing.Self:
-        ret = self._ensure()
-        if ret._secret.id is not None:
-            _ctx.error(
-                f"id was already specified for this secret as `{self._secret.id}`"
-            )
-        elif any(s.id == id for s in ret._trigger.secrets):
-            _ctx.error(f"id `{id}` was already specified for a secret")
-        else:
-            _ctx.validate(id, target=ret._secret, field="id")
-            ret._secret.id = id
-        return self
-
-    def required(self, value: bool = True) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(value, target=ret._secret, field="required")
-        ret._secret.required = value
-        return ret
-
-    def description(self, value: str | None) -> typing.Self:
-        ret = self._ensure()
-        value = value and textwrap.dedent(value.strip("\n"))
-        _ctx.validate(value, target=ret._secret, field="description")
-        ret._secret.description = value
-        return ret
-
-    def ensure_id(self) -> str:
-        ret = self._ensure()
-        if ret._secret.id is None:
-            id = _get_var_name(lambda v: v is ret)
-            ret._secret.id = _allocate_id(
-                id or "input",
-                lambda id: all(i.id != id for i in ret._trigger.secrets),
-                start_from_one=id is None,
-            )
-        return ret._secret.id
-
-    def _get_expr(self) -> Expr:
-        if self._secret is None:
-            return ~ErrorExpr("`secret` alone cannot be used in an expression")
-        id = self.ensure_id()
-        return getattr(Contexts.secrets, id)
-
-
-@dataclass
 class _OutputUpdater:
     _output: Output | None = None
     _trigger: WorkflowCall | None = None
@@ -686,7 +700,7 @@ class _OutputUpdater:
 
 
 class _OnUpdater(_NewUpdater):
-    class PullRequestOrPush(_NewUpdater):
+    class _PullRequestOrPush(_NewUpdater):
         def branches(self, *branches: str | typing.Iterable[str]) -> typing.Self:
             return self._update("branches", _seq, branches)
 
@@ -699,7 +713,7 @@ class _OnUpdater(_NewUpdater):
         def ignore_paths(self, *paths: str | typing.Iterable[str]) -> typing.Self:
             return self._update("ignore_paths", _seq, paths)
 
-    class PullRequest(PullRequestOrPush):
+    class _PullRequest(_PullRequestOrPush):
         def types(self, *types: str | typing.Iterable[str]) -> typing.Self:
             return self._update("types", _seq, types)
 
@@ -717,7 +731,7 @@ class _OnUpdater(_NewUpdater):
             ).ignore_paths(ignore_paths).types(types)
             return on
 
-    class Push(PullRequestOrPush):
+    class _Push(_PullRequestOrPush):
         def tags(self, *tags: str | typing.Iterable[str]) -> typing.Self:
             return self._update("tags", _seq, tags)
 
@@ -739,7 +753,7 @@ class _OnUpdater(_NewUpdater):
             ).ignore_paths(ignore_paths).tags(tags).ignore_tags(ignore_tags)
             return on
 
-    class WorkflowDispatch(_NewUpdater):
+    class _WorkflowDispatch(_NewUpdater):
         @property
         def input(self) -> _InputUpdater:
             self._ensure()
@@ -749,11 +763,33 @@ class _OnUpdater(_NewUpdater):
             self._ensure()
             return on
 
-    class WorkflowCall(WorkflowDispatch):
+    class _WorkflowCall(_WorkflowDispatch):
+        @dataclass
+        class _Secret(ProxyExpr, _IdElementUpdater[Secret]):
+            def __init__(self, *args):
+                ProxyExpr.__init__(self)
+                _IdElementUpdater.__init__(self, *args)
+
+            def __call__(
+                self, description: str | None = None, *, required: bool | None = None
+            ) -> typing.Self:
+                return self.description(description).required(required)
+
+            def required(self, value: bool = True) -> typing.Self:
+                return self._update("required", _value, value)
+
+            def description(self, value: str | None) -> typing.Self:
+                return self._update("description", _text, value)
+
+            def _get_expr(self) -> Expr:
+                if not self._instantiated:
+                    return ~ErrorExpr("`secret` alone cannot be used in an expression")
+                id = self.ensure_id()
+                return getattr(Contexts.secrets, id)
+
         @property
-        def secret(self) -> _SecretUpdater:
-            self._ensure()
-            return _SecretUpdater(trigger=_ctx.current_workflow.on.workflow_call)
+        def secret(self) -> _Secret:
+            return self._sub_updater(self._Secret, "secrets", "*")
 
         @property
         def output(self) -> _OutputUpdater:
@@ -764,32 +800,32 @@ class _OnUpdater(_NewUpdater):
 
     @property
     def pull_request(self) -> PullRequest:
-        return self._sub_updater(self.PullRequest, "pull_request")
+        return self._sub_updater(self._PullRequest, "pull_request")
 
     @property
     def push(self):
-        return self._sub_updater(self.Push, "push")
+        return self._sub_updater(self._Push, "push")
 
     @property
     def workflow_dispatch(self) -> WorkflowDispatch:
-        return self._sub_updater(self.WorkflowDispatch, "workflow_dispatch")
+        return self._sub_updater(self._WorkflowDispatch, "workflow_dispatch")
 
     @property
     def workflow_call(self) -> WorkflowCall:
-        return self._sub_updater(self.WorkflowCall, "workflow_call")
+        return self._sub_updater(self._WorkflowCall, "workflow_call")
 
 
 on = _OnUpdater(_get_workflow, ("on",))
 
 
 def name(name: str):
-    _update_element(name, _get_job_or_workflow, "name")
+    _update_element(name, _get_job_or_workflow("name"), "name")
 
 
 def env(mapping=None, /, **kwargs):
     _update_element(
         _map("env", (mapping, kwargs)),
-        _get_job_or_workflow,
+        _get_job_or_workflow("env"),
         "env",
     )
 
