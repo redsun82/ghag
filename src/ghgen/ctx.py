@@ -400,11 +400,11 @@ def _map(
         return None
 
 
-def _value(field: str, value: Value | None) -> Value | None:
+def _value[T](field: str, value: T) -> T:
     return value
 
 
-def _text(field: str, value: Value | None) -> Value | None:
+def _text[T](field: str, value: T) -> T:
     if isinstance(value, str):
         value = textwrap.dedent(value.strip("\n"))
     return value
@@ -679,11 +679,64 @@ class _OnUpdater(_NewUpdater):
             ).ignore_paths(ignore_paths).tags(tags).ignore_tags(ignore_tags)
             return on
 
+    @dataclass
+    class _Input(ProxyExpr, _IdElementUpdater[Input]):
+        def __init__(self, *args):
+            ProxyExpr.__init__(self)
+            _IdElementUpdater.__init__(self, *args)
+
+        def __call__(
+            self,
+            description: str | None = None,
+            *,
+            id: str | None = None,
+            required: bool | None = None,
+            type: str | None = None,
+            default: typing.Any = None,
+        ) -> typing.Self:
+            return (
+                self.description(description)
+                .required(required)
+                .id(id)
+                .type(type)
+                .default(default)
+            )
+
+        def required(self, value: bool = True) -> typing.Self:
+            return self._update("required", _value, value)
+
+        def description(self, value: str | None) -> typing.Self:
+            return self._update("description", _text, value)
+
+        def type(self, value: str | None) -> typing.Self:
+            # TODO check type
+            return self._update("type", _value, value)._post_process()
+
+        def options(self, *options: str | typing.Iterable[str]) -> typing.Self:
+            return self._update("options", _seq, options)._post_process()
+
+        def default(self, value: typing.Any) -> typing.Self:
+            # TODO check type when it is already set
+            return self._update("default", _value, value)._post_process()
+
+        def _post_process(self) -> typing.Self:
+            el = self._element
+            try:
+                el.__post_init__()
+            except ValueError as e:
+                _ctx.error(e.args[0])
+            return self
+
+        def _get_expr(self) -> Expr:
+            if not self._instantiated:
+                return ~ErrorExpr("`input` alone cannot be used in an expression")
+            id = self.ensure_id()
+            return getattr(Contexts.inputs, id)
+
     class _WorkflowDispatch(_NewUpdater):
         @property
-        def input(self) -> _InputUpdater:
-            self._ensure()
-            return _InputUpdater(trigger=_ctx.current_workflow.on.workflow_dispatch)
+        def input(self) -> "_OnUpdater._Input":
+            return self._sub_updater(_OnUpdater._Input, "inputs", "*")
 
         def __call__(self) -> "_OnUpdater":
             self._ensure()
