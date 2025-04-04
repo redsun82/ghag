@@ -356,7 +356,7 @@ class Step(Element):
     name: Value
     if_: Value
     continue_on_error: Value
-    run: Value = ""
+    run: Value
     env: dict[str, Value]
     uses: str
     with_: dict[str, Value]

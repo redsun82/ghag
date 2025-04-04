@@ -102,6 +102,16 @@ class _Context(ContextBase):
         w = self.current_workflow
         assert w is not None
         id = self.current_workflow_id
+        for j_id, j in w.jobs.items():
+            for i, s in enumerate(j.steps or (), 1):
+                if s.with_ and not s.uses is not None:
+                    _ctx.error(
+                        f"step `{s.id or i}` in job `{j_id}` has a `with` but no `uses`"
+                    )
+                elif s.uses is None and s.run is None:
+                    s.run = ""
+            if j.steps and j.runs_on is None:
+                j.runs_on = default_runner
         self.check(
             w.on.has_triggers,
             f"workflow `{id}` must have at least one trigger",
@@ -294,13 +304,14 @@ class _NewUpdater[T]:
             )
         return self._cached_element
 
+    def _get_parent_with_type(self) -> tuple[typing.Any, type]:
+        start = self._start(self._log_path)
+        return _ensure_element_with_type(start, type(start), self._path[:-1])
+
     @property
     def _parent(self) -> typing.Any:
         if self._cached_parent is None:
-            start = self._start(self._log_path)
-            self._cached_parent, self._cached_parent_type = _ensure_element_with_type(
-                start, type(start), self._path[:-1]
-            )
+            self._cached_parent, self._cached_parent_type = self._get_parent_with_type()
         return self._cached_parent
 
     def _update[U](
@@ -341,13 +352,13 @@ class _IdElementUpdater[T](_NewUpdater[T]):
     def _ensure(self) -> typing.Self:
         if self._instantiated:
             return self
-        parent_list = self._parent
+        parent_list, parent_type = self._get_parent_with_type()
         assert isinstance(parent_list, list)
         ret = type(self)(
             self._start,
             self._path[:-1] + (len(parent_list),),
             _cached_parent=parent_list,
-            _cached_parent_type=self._cached_parent_type,
+            _cached_parent_type=parent_type,
         )
         _ = ret._element
         return ret
@@ -384,7 +395,7 @@ class _IdElementUpdater[T](_NewUpdater[T]):
 def _seq(
     field: str, args: tuple[Value | typing.Iterable[str] | None, ...]
 ) -> list[Value] | None:
-    if not args or args == (None,):
+    if not args or (len(args) == 1 and args[0] is None):
         return None
     ret = []
     for arg in args:
@@ -405,13 +416,27 @@ def _map(
     ],
 ) -> dict[str, Value] | None:
     arg, kwargs = args
-    if arg is None:
+    if arg is None and not kwargs:
+        return None
+    elif arg is None:
         return kwargs
     try:
         return dict(arg, **kwargs)
     except (TypeError, ValueError) as e:
-        _ctx.error(f"illegal assignment to`{field}`: {e}")
+        _ctx.error(f"illegal assignment to `{field}`: {e}")
         return None
+
+
+def _field_map(
+    field: str,
+    args: tuple[
+        dict[str, Value] | typing.Iterable[tuple[Value, Value]] | None, dict[str, Value]
+    ],
+) -> dict[str, Value] | None:
+    args, kwargs = args
+    kwargs = {Element._key(k): v for k, v in kwargs.items() if v is not None}
+    ret = _map(field, (args, kwargs))
+    return ret
 
 
 def _value[T](field: str, value: T) -> T:
@@ -720,7 +745,11 @@ def name(name: str):
     _update_element(name, _get_job_or_workflow("name"), "name")
 
 
-def env(mapping=None, /, **kwargs):
+def env(
+    mapping: dict[str, Value] | typing.Iterable[tuple[str, Value]] | None = None,
+    /,
+    **kwargs: Value,
+):
     _update_element(
         _map("env", (mapping, kwargs)),
         _get_job_or_workflow("env"),
@@ -1002,7 +1031,9 @@ def _get_var_name(pred: typing.Callable[[object], bool]) -> str | None:
 
 def _ensure_id(s: Step) -> str:
     if s.id is None:
-        id = _get_var_name(lambda v: isinstance(v, _StepUpdater) and v._step is s)
+        id = _get_var_name(
+            lambda v: isinstance(v, _StepUpdater) and v._cached_element is s
+        )
         s.id = _allocate_id(
             id or "step",
             lambda id: all(s.id != id for s in _ctx.current_job.steps),
@@ -1012,104 +1043,86 @@ def _ensure_id(s: Step) -> str:
 
 
 @dataclass
-class _StepUpdater(ProxyExpr):
-    _step: Step | None = None
+class _StepUpdater(ProxyExpr, _IdElementUpdater[Step]):
+    def __init__(self, *args, **kwargs):
+        ProxyExpr.__init__(self)
+        _IdElementUpdater.__init__(self, *args, **kwargs)
 
-    def __init__(self, step: Step | None = None):
-        super().__init__()
-        self._step = step
-
-    def __call__(self, name: Value | None = None, **kwargs) -> typing.Self:
-        ret = self.name(name)
-        for k, v in kwargs.items():
-            getattr(ret, k)(v)
+    def __call__(
+        self,
+        name: Value | None = None,
+        run: Value | None = None,
+        id: str | None = None,
+        if_: Value | None = None,
+        env: dict[str, Value] | None = None,
+        continue_on_error: bool | None = None,
+        uses: str | None = None,
+        with_: dict[str, Value] | None = None,
+        outputs: tuple[str] | None = None,
+        needs: typing.Iterable[RefExpr] | None = None,
+    ) -> typing.Self:
+        ret = (
+            self.name(name)
+            .id(id)
+            .if_(if_)
+            .continue_on_error(continue_on_error)
+            .needs(needs)
+        )
+        if env is not None:
+            ret.env(env)
+        if run is not None:
+            ret.run(run)
+        if uses is not None:
+            ret.uses(uses)
+        if with_ is not None:
+            ret.with_(with_)
+        if outputs is not None:
+            ret.outputs(outputs)
         return ret
 
     def _get_expr(self) -> Expr:
-        if self._step is None:
+        if not self._instantiated:
             return ~ErrorExpr("`step` alone cannot be used in an expression")
         id = self.ensure_id()
         return getattr(Contexts.steps, id)
 
-    def _ensure(self) -> typing.Self:
-        if self._step is not None:
-            return self
-        step = Step()
-        ret = _StepUpdater(step)
-        _JobUpdaters.steps([step])
-        j = _ctx.current_job
-        if j and j.uses and len(j.steps) == 1:
-            _ctx.error(
-                f"job `{_ctx.current_job_id}` adds steps when `uses` is already set"
-            )
-        if j and j.runs_on is None:
-            # only set the runner to default when we use steps
-            j.runs_on = default_runner
-        return ret
-
     def _ensure_run_step(self) -> typing.Self:
         ret = self._ensure()
-        if ret._step.uses or ret._step.with_:
-            _ctx.error("cannot turn a `use` step into a `run` one")
+        if ret._element.uses is not None or ret._element.with_:
+            _ctx.error("cannot turn a `uses` step into a `run` one")
         return ret
 
     def _ensure_use_step(self) -> typing.Self:
         ret = self._ensure()
-        if ret._step.run:
-            _ctx.error("cannot turn a `run` step into a `use` one")
-        else:
-            ret._step.run = None
-        return ret
-
-    def id(self, id: str) -> typing.Self:
-        ret = self._ensure()
-        if ret._step.id:
-            _ctx.error(f"id was already specified for this step as `{ret._step.id}`")
-        elif any(s.id == id for s in _ctx.current_job.steps):
-            _ctx.error(f"id `{id}` was already specified for a step")
-        else:
-            ret._step.id = id
+        if ret._element.run is not None:
+            _ctx.error("cannot turn a `run` step into a `uses` one")
         return ret
 
     def name(self, name: Value) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(name, target=ret._step, field="name")
-        ret._step.name = name
-        return ret
+        return self._update("name", _value, name)
 
     def if_(self, condition: Value) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(condition, target=ret._step, field="if_")
-        ret._step.if_ = condition
-        return ret
+        return self._update("if_", _value, condition)
 
-    def env(self, *args, **kwargs) -> typing.Self:
-        ret = self._ensure_run_step()
-        value = dict(*args, **kwargs)
-        _ctx.validate(value, target=ret._step, field="env")
-        ret._step.env = (ret._step.env or {}) | value
-        return ret
+    def env(
+        self,
+        mapping: dict[str, Value] | typing.Iterable[tuple[str, Value]] | None = None,
+        /,
+        **kwargs: Value,
+    ) -> typing.Self:
+        return self._update("env", _map, (mapping, kwargs))
 
-    def run(self, code: Value, **kwargs) -> typing.Self:
-        ret = self._ensure_run_step()
-        for k, v in kwargs.items():
-            getattr(ret, k)(v)
-        _ctx.validate(code, target=ret._step, field="run")
-        if isinstance(code, str):
-            code = textwrap.dedent(code.strip("\n"))
-        ret._step.run = code
-        return ret
+    def run(self, code: Value) -> typing.Self:
+        return self._ensure_run_step()._update("run", _text, code)
 
-    def uses(self, source: Value, **kwargs):
-        ret = self._ensure_use_step()
-        _ctx.validate(source, target=ret._step, field="uses")
-        ret._step.uses = source
-        if isinstance(source, str) and not ret._step.name:
+    def uses(self, source: Value, **kwargs: Value):
+        ret = self._ensure_run_step()._update("uses", _value, source)
+        if isinstance(source, str) and not ret._element.name:
             try:
                 _, _, action_name = source.rpartition("/")
                 action_name, _, _ = action_name.partition("@")
                 action_name = inflection.humanize(inflection.titleize(action_name))
-                ret._step.name = action_name
+                ret.name(action_name)
             except Exception:
                 pass
         if kwargs:
@@ -1117,19 +1130,17 @@ class _StepUpdater(ProxyExpr):
         return ret
 
     def continue_on_error(self, value: Value = True) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(value, target=ret._step, field="continue_on_error")
-        ret._step.continue_on_error = value
-        return ret
+        return self._update("continue_on_error", _value, value)
 
-    def with_(self, *args, **kwargs) -> typing.Self:
-        ret = self._ensure_use_step()
-        value = dict(*args, **{Element._key(k): a for k, a in kwargs.items()})
-        _ctx.validate(value, target=ret._step, field="with_")
-        ret._step.with_ = (ret._step.with_ or {}) | value
-        return ret
+    def with_(
+        self,
+        mapping: dict[str, Value] | typing.Iterable[tuple[str, Value]] | None = None,
+        /,
+        **kwargs: Value,
+    ) -> typing.Self:
+        return self._ensure_use_step()._update("with_", _field_map, (mapping, kwargs))
 
-    class _StepOutputsUpdater(ProxyExpr):
+    class _StepOutputs(ProxyExpr):
         _parent: "_StepUpdater"
 
         def __init__(self, parent: "_StepUpdater"):
@@ -1137,20 +1148,21 @@ class _StepUpdater(ProxyExpr):
             self._parent = parent
 
         def __call__(self, *args: str, **kwargs: Value) -> "_StepUpdater":
-            ret = self._parent._ensure_run_step()
-            outs = list(args)
-            outs.extend(a for a in kwargs if a not in args)
-            _ctx.validate(kwargs, target=ret._step, field="outputs")
-            ret._step.outputs = ret._step.outputs or []
-            ret._step.outputs += outs
+            args += tuple(a for a in kwargs if a not in args)
+            ret = self._parent._update("outputs", _seq, args)
             # TODO: support other shells than bash
             if kwargs:
                 # TODO: handle quoting?
                 out_code = "\n".join(
                     f"echo {k}={v} >> $GITHUB_OUTPUTS" for k, v in kwargs.items()
                 )
-                ret._step.run = (
-                    f"{ret._step.run}\n{out_code}" if ret._step.run else out_code
+                previous_code = ret._element.run
+                # validate addition without repeating errors on existing code
+                ret.run(out_code)
+                ret.run(
+                    f"{previous_code}\n{out_code}"
+                    if previous_code is not None
+                    else out_code
                 )
             return ret
 
@@ -1158,21 +1170,17 @@ class _StepUpdater(ProxyExpr):
             return self._parent._get_expr().outputs
 
     @property
-    def outputs(self) -> _StepOutputsUpdater:
-        return self._StepOutputsUpdater(self)
+    def outputs(self) -> _StepOutputs:
+        return self._StepOutputs(self)
 
     def needs(self, *jobs: RefExpr | tuple[RefExpr, ...]) -> typing.Self:
-        jobs = tuple(j for s in jobs for j in ((s,) if isinstance(s, RefExpr) else s))
-        jobs = needs(*jobs)
-        ret = self._ensure()
-        ret._step.needs = jobs
-        return ret
-
-    def ensure_id(self) -> str:
-        return _ensure_id(self._ensure()._step)
+        jobs = _seq(self._log_path, jobs)
+        if jobs is not None:
+            jobs = needs(*jobs)
+        return self._update("needs", _value, jobs)
 
 
-step = _StepUpdater()
+step = _StepUpdater(_get_job, ("steps", "*"))
 run = step.run
 use = step.uses
 
@@ -1206,7 +1214,7 @@ def outputs(*args: RefExpr | _StepUpdater, **kwargs: typing.Any):
             case RefExpr(_segments=(*_, id)):
                 _JobUpdaters.outputs(((id, arg),))
             case _StepUpdater():
-                _dump_step_outputs(arg._step)
+                _dump_step_outputs(arg._element)
             case _:
                 _ctx.error(
                     f"unsupported unnamed output `{instantiate(arg)}`, must be a context field or a step"

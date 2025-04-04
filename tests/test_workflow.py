@@ -925,7 +925,7 @@ def test_needs():
 
     @job
     def j2():
-        run("", if_=j1)
+        run("").if_(j1)
 
     @job
     def j3():
