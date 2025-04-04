@@ -43,7 +43,9 @@ class Element:
             args = ", ".join(
                 f"{f}={v!r}"
                 for f, v in (
-                    (f.name, getattr(self, f.name)) for f in dataclasses.fields(self)
+                    (f.name, getattr(self, f.name))
+                    for f in dataclasses.fields(self)
+                    if f.repr
                 )
                 if v is not None
             )

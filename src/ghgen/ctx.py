@@ -197,10 +197,12 @@ def _type(path: _Path) -> type | None:
     return t
 
 
-def _ensure_element(start: Workflow | Job, path: tuple[str | int, ...]) -> typing.Any:
-    assert start
+def _ensure_element_with_type(
+    start: Workflow | Job, start_type: type, path: tuple[str | int, ...]
+) -> tuple[typing.Any, type]:
+    assert start is not None
     e = start
-    t = type(e)
+    t = start_type
     for p in path:
         match e, p:
             case _, str() if issubclass(t, Element):
@@ -211,9 +213,10 @@ def _ensure_element(start: Workflow | Job, path: tuple[str | int, ...]) -> typin
                     t = typing.get_args(t)[0]
                 next_e = getattr(e, p)
                 if next_e is None:
-                    next_e = t()
-                    setattr(e, p, next_e)
-                e = next_e
+                    setattr(e, p, t())
+                    e = getattr(e, p)
+                else:
+                    e = next_e
             case list(), int() if p >= 0:
                 t = typing.get_args(t)[0]
                 e.extend([t() for _ in range(len(e), p + 1)])
@@ -223,7 +226,11 @@ def _ensure_element(start: Workflow | Job, path: tuple[str | int, ...]) -> typin
                 e = e.setdefault(p, t())
             case _:
                 assert False, f"unexpected access by `{p!r}` in `{t}`"
-    return e
+    return e, t
+
+
+def _ensure_element(start: Workflow | Job, path: tuple[str | int, ...]) -> typing.Any:
+    return _ensure_element_with_type(start, type(start), path)[0]
 
 
 def _get_workflow(path: str) -> Workflow:
@@ -272,6 +279,7 @@ class _NewUpdater[T]:
     _path: tuple[str | int, ...]
     _cached_element: T | None = None
     _cached_parent: typing.Any = None
+    _cached_parent_type: typing.Any = None
 
     @property
     def _log_path(self) -> str:
@@ -280,17 +288,18 @@ class _NewUpdater[T]:
     @property
     def _element(self) -> T:
         if self._cached_element is None:
-            _ = self._parent
-            self._cached_element = _ensure_element(
-                self._start(self._log_path), self._path
+            parent = self._parent
+            self._cached_element, _ = _ensure_element_with_type(
+                parent, self._cached_parent_type, (self._path[-1],)
             )
         return self._cached_element
 
     @property
     def _parent(self) -> typing.Any:
         if self._cached_parent is None:
-            self._cached_parent = _ensure_element(
-                self._start(self._log_path), self._path[:-1]
+            start = self._start(self._log_path)
+            self._cached_parent, self._cached_parent_type = _ensure_element_with_type(
+                start, type(start), self._path[:-1]
             )
         return self._cached_parent
 
@@ -334,7 +343,12 @@ class _IdElementUpdater[T](_NewUpdater[T]):
             return self
         parent_list = self._parent
         assert isinstance(parent_list, list)
-        ret = type(self)(self._start, self._path[:-1] + (len(parent_list),))
+        ret = type(self)(
+            self._start,
+            self._path[:-1] + (len(parent_list),),
+            _cached_parent=parent_list,
+            _cached_parent_type=self._cached_parent_type,
+        )
         _ = ret._element
         return ret
 
@@ -487,144 +501,6 @@ class _MapUpdater[**P, F](_Updater):
         return super().__call__({key: self.value_init(*args, **kwargs)})
 
 
-@dataclass
-class _InputUpdater(ProxyExpr):
-    _input: Input | None = None
-    _trigger: WorkflowCall | WorkflowDispatch | None = None
-
-    def __init__(
-        self,
-        input: Input | None = None,
-        trigger: WorkflowCall | WorkflowDispatch | None = None,
-    ):
-        super().__init__()
-        self._input = input
-        self._trigger = trigger
-
-    def __call__(self, description: str | None = None, **kwargs) -> typing.Self:
-        ret = self.description(description)
-        for k, v in kwargs.items():
-            getattr(ret, k)(v)
-        return ret
-
-    @property
-    def _triggers(self) -> tuple[WorkflowCall | WorkflowDispatch, ...]:
-        if self._trigger is not None:
-            return (self._trigger,)
-        if not _ctx.current_workflow:
-            return ()
-        return tuple(
-            t
-            for t in (
-                _ctx.current_workflow.on.workflow_call,
-                _ctx.current_workflow.on.workflow_dispatch,
-            )
-            if t is not None
-        )
-
-    def _ensure(self) -> typing.Self:
-        if self._input:
-            return self
-        ret = type(self)(Input(), self._trigger)
-        if not _ctx.current_workflow or _ctx.current_job:
-            _ctx.error("`on.input` can only be used in a workflow")
-            return ret
-        if not self._triggers:
-            _ctx.error(
-                "`on.input` must be used after setting either `on.workflow_call` or `on.workflow_dispatch`"
-            )
-            return ret
-        for t in self._triggers:
-            if t.inputs is None:
-                t.inputs = []
-            t.inputs.append(ret._input)
-        return ret
-
-    def _finalize(self):
-        assert self._input
-        try:
-            self._input.__post_init__()
-        except ValueError as e:
-            _ctx.error(e.args[0])
-
-    def id(self, id: str) -> typing.Self:
-        ret = self._ensure()
-        if ret._input.id is not None:
-            _ctx.error(f"id was already specified for this input as `{ret._input.id}`")
-        elif any(i.id == id for t in ret._triggers if t is not None for i in t.inputs):
-            _ctx.error(f"id `{id}` was already specified for an input")
-        else:
-            _ctx.validate(id, target=ret._input, field="id")
-            ret._input.id = id
-        return ret
-
-    def required(self, value: bool = True) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(id, target=ret._input, field="required")
-        ret._input.required = value
-        return ret
-
-    def default(self, value: typing.Any):
-        ret = self._ensure()
-        _ctx.validate(id, target=ret._input, field="default")
-        ret._input.default = value
-        ret._finalize()
-        return ret
-
-    def description(self, value: str | None) -> typing.Self:
-        ret = self._ensure()
-        assert ret._input is not None
-        value = value and textwrap.dedent(value.strip("\n"))
-        _ctx.validate(value, target=ret._input, field="description")
-        ret._input.description = value
-        return ret
-
-    def type(self, value: typing.Any) -> typing.Self:
-        ret = self._ensure()
-        _ctx.validate(id, target=ret._input, field="type")
-        ret._input.type = value
-        ret._finalize()
-        return ret
-
-    def options(
-        self, seq_or_first: str | typing.Iterable[str] | None, *rest: str
-    ) -> typing.Self:
-        match seq_or_first, rest:
-            case str(), _:
-                seq = [seq_or_first] + list(rest)
-            case typing.Iterable(), ():
-                seq = list(seq_or_first)
-            case None, ():
-                seq = seq_or_first
-            case _:
-                _ctx.error(
-                    "`options` must be given either a sequence of strings or string arguments"
-                )
-                return self
-        ret = self._ensure()
-        _ctx.validate(id, target=ret._input, field="options")
-        ret._input.options = seq
-        ret._finalize()
-        return ret
-
-    def ensure_id(self) -> str:
-        ret = self._ensure()
-        if ret._input.id is None:
-            id = _get_var_name(lambda v: v is ret)
-            ret._input.id = _allocate_id(
-                id or "input",
-                lambda id: all(i.id != id for i in _ctx.current_workflow.inputs),
-                start_from_one=id is None,
-            )
-        return ret._input.id
-
-    def _get_expr(self) -> Expr:
-        if self._input is None:
-            return ~ErrorExpr("`input` alone cannot be used in an expression")
-        id = self.ensure_id()
-        return getattr(Contexts.inputs, id)
-
-
 class _OnUpdater(_NewUpdater):
     class _PullRequestOrPush(_NewUpdater):
         def branches(self, *branches: str | typing.Iterable[str]) -> typing.Self:
@@ -681,9 +557,24 @@ class _OnUpdater(_NewUpdater):
 
     @dataclass
     class _Input(ProxyExpr, _IdElementUpdater[Input]):
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             ProxyExpr.__init__(self)
-            _IdElementUpdater.__init__(self, *args)
+            _IdElementUpdater.__init__(self, *args, **kwargs)
+
+        def _ensure(self) -> typing.Self:
+            instantated = self._instantiated
+            ret = super()._ensure()
+            if (
+                not instantated
+                and ret._path[:2] == ("on", "inputs")
+                and _ctx.current_workflow
+                and not _ctx.current_job
+                and not ret._parent.proxied
+            ):
+                _ctx.error(
+                    "`on.input` must be used after setting either `on.workflow_call` or `on.workflow_dispatch`"
+                )
+            return ret
 
         def __call__(
             self,
@@ -745,9 +636,9 @@ class _OnUpdater(_NewUpdater):
     class _WorkflowCall(_WorkflowDispatch):
         @dataclass
         class _Secret(ProxyExpr, _IdElementUpdater[Secret]):
-            def __init__(self, *args):
+            def __init__(self, *args, **kwargs):
                 ProxyExpr.__init__(self)
-                _IdElementUpdater.__init__(self, *args)
+                _IdElementUpdater.__init__(self, *args, **kwargs)
 
             def __call__(
                 self,
@@ -801,7 +692,9 @@ class _OnUpdater(_NewUpdater):
         def output(self) -> _Output:
             return self._sub_updater(self._Output, "outputs", "*")
 
-    input = _InputUpdater()
+    @property
+    def input(self) -> _Input:
+        return self._sub_updater(self._Input, "inputs", "*")
 
     @property
     def pull_request(self) -> PullRequest:
@@ -934,7 +827,7 @@ def _merge[T](field: str, lhs: T | None, rhs: T | None, recursed=False) -> T | N
                 assert type(lhs) is type(rhs)
                 return rhs
     except AssertionError as e:
-        _ctx.error(f"cannot assign `{type(rhs).__name__}` to `{field}`")
+        _ctx.error(f"cannot assign `{rhs!r}` to `{field}`")
 
 
 class GenerationError(Exception):

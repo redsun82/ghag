@@ -111,12 +111,12 @@ def test_wrong_input(error):
     )
     on.input()
     on.workflow_dispatch()
-    error("unexpected input type `list[int]`")
+    error("cannot assign `list[int]` to `type`")
     on.input.type(list[int])
 
     @job
     def j():
-        error("`on.input` can only be used in a workflow")
+        error("`on.input` must be used in a workflow")
         on.input()
 
 

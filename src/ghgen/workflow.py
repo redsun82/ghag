@@ -197,6 +197,51 @@ class WorkflowCall(Trigger):
         return _dictionarize(super().asdict(), "inputs", "secrets", "outputs")
 
 
+class ProxyList[T](list[T]):
+    def __init__(self):
+        super().__init__()
+        self.proxied = []
+
+    def extend(self, __iterable):
+        new = list(__iterable)
+        super().extend(new)
+        for p in self.proxied:
+            p += new
+
+    def add_proxied(self, l: list[T]):
+        super().extend(l)
+        self.proxied.append(l)
+
+
+class _ProxyListAttr[T]:
+    def __init__(self, *attrs: str):
+        self.attrs = attrs
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, instance, owner) -> list[T] | None:
+        if instance is None:
+            return None
+        return self._get(instance)
+
+    def _get(self, instance) -> ProxyList[T] | None:
+        ret = ProxyList()
+        for a in self.attrs:
+            parent = getattr(instance, a)
+            if parent is None:
+                continue
+            elements = getattr(parent, self.name)
+            if elements is None:
+                elements = []
+                setattr(parent, self.name, elements)
+            ret.add_proxied(elements)
+        return ret
+
+    def __set__(self, instance, value):
+        pass
+
+
 class On(Element):
     _preserve_underscores = True
 
@@ -274,11 +319,25 @@ class On(Element):
     workflow_dispatch: WorkflowDispatch
     workflow_run: StrictTypedTrigger("completed", "in_progress", "requested")
 
+    # extensions
+    inputs: list[Input] | None = field(
+        default=_ProxyListAttr("workflow_call", "workflow_dispatch"),
+        repr=False,
+        init=False,
+    )
+
     @property
     def has_triggers(self) -> bool:
         return any(
-            getattr(self, field.name) is not None for field in dataclasses.fields(self)
+            getattr(self, field.name) is not None
+            for field in dataclasses.fields(self)
+            if field.name != "inputs"
         )
+
+    def asdict(self) -> typing.Any:
+        ret = super().asdict()
+        ret.pop("inputs", None)
+        return ret
 
 
 def _flow_text(d: dict, *keys: str) -> dict:
@@ -388,13 +447,3 @@ class Workflow(Element):
     on: On = field(default_factory=On)
     env: dict[str, Value]
     jobs: dict[str, Job] = field(default_factory=dict)
-
-    @property
-    def inputs(self) -> list[Input]:
-        inputs = {
-            id(i): i
-            for t in (self.on.workflow_call, self.on.workflow_dispatch)
-            if t is not None
-            for i in t.inputs or ()
-        }
-        return [*inputs.values()]
