@@ -343,8 +343,9 @@ def test_wrong_calls(error):
         call("foo")
         error("job `j2` has already specified `uses` (with `call`)")
         call("bar")
-        # TODO error("job `j2` adds steps when `uses` is already set")
+        error("job `j2` adds steps when `uses` is already set (by `call`)")
         run("echo hello")
+        run("echo world")
         error(
             "job `j2` cannot set `runs-on` as it has already specified `uses` (with `call`)"
         )

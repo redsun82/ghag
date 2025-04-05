@@ -1067,9 +1067,8 @@ class _StepUpdater(ProxyExpr, _IdElementUpdater[Step]):
             .if_(if_)
             .continue_on_error(continue_on_error)
             .needs(needs)
+            .env(env)
         )
-        if env is not None:
-            ret.env(env)
         if run is not None:
             ret.run(run)
         if uses is not None:
@@ -1079,6 +1078,17 @@ class _StepUpdater(ProxyExpr, _IdElementUpdater[Step]):
         if outputs is not None:
             ret.outputs(outputs)
         return ret
+
+    def _ensure(self):
+        if (
+            _ctx.current_job
+            and _ctx.current_job.uses is not None
+            and not _ctx.current_job.steps
+        ):
+            _ctx.error(
+                f"job `{_ctx.current_job_id}` adds steps when `uses` is already set (by `call`)"
+            )
+        return super()._ensure()
 
     def _get_expr(self) -> Expr:
         if not self._instantiated:
