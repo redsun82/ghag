@@ -207,6 +207,11 @@ def _type(path: _Path) -> type | None:
     return t
 
 
+@dataclass
+class _Appender:
+    index: int | None = None
+
+
 def _ensure_element_with_type(
     start: Workflow | Job, start_type: type, path: tuple[str | int, ...]
 ) -> tuple[typing.Any, type]:
@@ -227,10 +232,18 @@ def _ensure_element_with_type(
                     e = getattr(e, p)
                 else:
                     e = next_e
-            case list(), int() if p >= 0:
+            case (list(), int() as i) | (list(), _Appender(index=int() as i)) if (
+                0 <= i <= len(e)
+            ):
                 t = typing.get_args(t)[0]
-                e.extend([t() for _ in range(len(e), p + 1)])
-                e = e[p]
+                if i == len(e):
+                    e.append(t())
+                e = e[i]
+            case list(), _Appender(index=None):
+                t = typing.get_args(t)[0]
+                p.index = len(e)
+                e.append(t())
+                e = e[-1]
             case dict(), str():
                 t = typing.get_args(t)[1]
                 e = e.setdefault(p, t())
