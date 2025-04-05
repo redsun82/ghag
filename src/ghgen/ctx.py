@@ -206,12 +206,15 @@ def _type(path: _Path) -> type | None:
             t = str
     return t
 
+<<<<<<< Updated upstream
 
 @dataclass
 class _Appender:
     index: int | None = None
 
 
+=======
+>>>>>>> Stashed changes
 def _ensure_element_with_type(
     start: Workflow | Job, start_type: type, path: tuple[str | int, ...]
 ) -> tuple[typing.Any, type]:
@@ -343,12 +346,20 @@ class _NewUpdater[T]:
             setattr(el, field, new_value)
         return ret
 
+    def _update_list[U](
+            self,
+            field: str | int,
+            ty: typing.Callable[[str, U], typing.Any],
+            value: U,
+    ):
+        self._sub_updater(_NewUpdater[list[U]], field)._update(_Appender(), ty, value)
+
     def _ensure(self) -> typing.Self:
         start = self._start(self._log_path)
         _ensure_element(start, self._path)
         return self
 
-    def _sub_updater[U](self, ty: type[U], *fields: str) -> T:
+    def _sub_updater[U](self, ty: type[U], *fields: str) -> U:
         return ty(self._start, self._path + fields)
 
 
@@ -421,11 +432,12 @@ def _seq(
                 _ctx.error(f"`{field}` cannot accept element `{arg}`")
     return ret
 
+type ValueMapping = dict[str, Value] | typing.Iterable[tuple[str, Value]] | None
 
 def _map(
     field: str,
     args: tuple[
-        dict[str, Value] | typing.Iterable[tuple[Value, Value]] | None, dict[str, Value]
+        ValueMapping, dict[str, Value]
     ],
 ) -> dict[str, Value] | None:
     arg, kwargs = args
@@ -443,7 +455,7 @@ def _map(
 def _field_map(
     field: str,
     args: tuple[
-        dict[str, Value] | typing.Iterable[tuple[Value, Value]] | None, dict[str, Value]
+        ValueMapping, dict[str, Value]
     ],
 ) -> dict[str, Value] | None:
     args, kwargs = args
@@ -759,7 +771,7 @@ def name(name: str):
 
 
 def env(
-    mapping: dict[str, Value] | typing.Iterable[tuple[str, Value]] | None = None,
+    mapping: ValueMapping = None,
     /,
     **kwargs: Value,
 ):
@@ -770,40 +782,79 @@ def env(
     )
 
 
-class _WorkflowOrJobUpdaters(_Updaters):
-    @classmethod
-    def instance(cls, reason: str):
-        if not _ctx.current_workflow:
-            _ctx.error(
-                f"`{reason}` can only be set in a workflow or a job. Did you forget a `@workflow` decoration?"
-            )
-            return None
-        return _ctx.current_job or _ctx.current_workflow
+class _JobUpdaters(_NewUpdater[Job]):
+    def __init__(self):
+        super().__init__(_get_job, ())
 
-    # name = _Updater(str)
-    # env = _Updater(dict)
+    def runs_on(self, runner: Value):
+        self._update("runs_on", _value, runner)
+
+    class Strategy(ProxyExpr, _NewUpdater[Strategy]):
+        def __init__(self):
+            ProxyExpr.__init__(self)
+            _NewUpdater.__init__(self, _get_job, ("strategy",))
+
+        def _get_expr(self) -> Expr:
+            return Contexts.strategy
+
+        class Matrix(_NewUpdater[Matrix]):
+            def include(self, mapping: ValueMapping = None, /, **kwargs: Value):
+                return self._update_list("includes", _field_map, (mapping, kwargs))
+            def exclude(self, mapping: ValueMapping = None, /, **kwargs: Value):
+                return self._update_list("excludes", _field_map, (mapping, kwargs))
+
+            def __call__(self, value: Expr | None = None, /, includes: typing.Iterable[dict[str, Value]] | None = None, excludes: typing.Iterable[dict[str, Value]] | None = None, **kwargs: list[Value]) -> typing.Self | None:
+                if value is not None:
+                    if includes or excludes or kwargs:
+                        _ctx.error("`matrix` cannot be used with both an expression value and `includes`, `excludes` or other keyword values")
+                    self._parent.matrix = value
+                    return None
+                ret = self._ensure()
+                ret._update("includes", _seq, includes)
+                ret._update("excludes", _seq, excludes)
+                ret._update("values", _field_map, (None, kwargs))
+                return ret
+
+        @property
+        def matrix(self) -> Matrix:
+            return self._sub_updater(self.Matrix, "matrix")
+
+        class FailFast(ProxyExpr):
+            _parent: "Strategy"
+
+            def __init__(self, parent):
+                ProxyExpr.__init__(self)
+                self._parent = parent
+
+            def _get_expr(self) -> Expr:
+                return Contexts.strategy.fail_fast
+
+            def __call__(self, value: Value | None = True) -> typing.Self:
+                self._parent._update("fail_fast", _value, value)
 
 
-class _JobUpdaters(_Updaters):
-    @classmethod
-    def instance(cls, reason: str):
-        if not _ctx.current_workflow:
-            _ctx.error(
-                f"`{reason}` can only be set in a job or an implicit workflow job. Did you forget a `@workflow` decoration?"
-            )
-            return None
-        if not _ctx.current_job:
-            return _ctx.auto_job(reason)
-        return _ctx.current_job
+        @property
+        def fail_fast(self) -> FailFast:
+            return self.FailFast(self)
 
-    runs_on = _Updater(str)
+        class MaxParallel(ProxyExpr):
+            _parent: "Strategy"
 
-    class StrategyUpdater(_Updater):
-        matrix = _Updater(Matrix)
-        fail_fast = _Updater(lambda v=True: v)
-        max_parallel = _Updater(int)
+            def __init__(self, parent):
+                ProxyExpr.__init__(self)
+                self._parent = parent
 
-    strategy = StrategyUpdater(Strategy)
+            def _get_expr(self) -> Expr:
+                return Contexts.strategy.max_parallel
+
+            def __call__(self, value: Value | None = None) -> typing.Self:
+                self._parent._update("max_parallel", _value, value)
+
+        @property
+        def max_parallel(self) -> MaxParallel:
+            return self.MaxParallel(self)
+
+    strategy = Strategy()
     steps = _Updater(list)
 
     class ContainerUpdater[**P, F](_Updater[P, F]):
@@ -1129,7 +1180,7 @@ class _StepUpdater(ProxyExpr, _IdElementUpdater[Step]):
 
     def env(
         self,
-        mapping: dict[str, Value] | typing.Iterable[tuple[str, Value]] | None = None,
+        mapping: ValueMapping = None,
         /,
         **kwargs: Value,
     ) -> typing.Self:
@@ -1157,7 +1208,7 @@ class _StepUpdater(ProxyExpr, _IdElementUpdater[Step]):
 
     def with_(
         self,
-        mapping: dict[str, Value] | typing.Iterable[tuple[str, Value]] | None = None,
+        mapping: ValueMapping = None,
         /,
         **kwargs: Value,
     ) -> typing.Self:
